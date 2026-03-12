@@ -157,12 +157,17 @@ const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 function R(){
   const a=$('#app');
   if(!currentUser&&S.screen!=='admin'&&S.screen!=='loading')S.screen='auth';
-  switch(S.screen){
-    case'loading':a.innerHTML=loadingHTML();break;
-    case'auth':a.innerHTML=authHTML();bindAuth();break;
-    case'admin':a.innerHTML=adminHTML();bindAdmin();break;
-    case'home':a.innerHTML=homeHTML();bindHome();break;
-    case'quiz':a.innerHTML=quizHTML();bindQuiz();break;
+  try{
+    switch(S.screen){
+      case'loading':a.innerHTML=loadingHTML();break;
+      case'auth':a.innerHTML=authHTML();bindAuth();break;
+      case'admin':a.innerHTML=adminHTML();bindAdmin();break;
+      case'home':a.innerHTML=homeHTML();bindHome();break;
+      case'quiz':a.innerHTML=quizHTML();bindQuiz();break;
+    }
+  }catch(e){
+    console.error('Render error:',e);
+    a.innerHTML='<div style="padding:40px;text-align:center;color:var(--bad)"><h2>렌더링 오류</h2><p style="margin:10px 0;color:var(--t2);font-size:13px">'+e.message+'</p><button onclick="localStorage.clear();location.reload()" class="btn bgh" style="margin-top:16px">🔄 초기화 후 새로고침</button></div>';
   }
 }
 
@@ -203,7 +208,7 @@ function bindAuth(){
     const id=$('#login-id').value.trim(),pw=$('#login-pw').value,err=$('#login-err');
     err.style.display='none';
     if(!id||!pw){err.textContent='아이디와 비밀번호를 입력하세요';err.style.display='block';return}
-    const ms=membersLocal(),m=ms.find(x=>x.id===id);
+    const ms=membersLocal(),m=ms.find(x=>(x.id||x.name)===id);
     if(!m){err.textContent='존재하지 않는 아이디입니다';err.style.display='block';return}
     if(m.pw!==pw){err.textContent='비밀번호가 틀렸습니다';err.style.display='block';return}
     currentUser=id;LC.set('currentUser',currentUser);
@@ -225,11 +230,12 @@ function bindAuth(){
 // ═══ ADMIN ═══
 function adminHTML(){
   const members=membersLocal(),quizzes=quizListLocal();
-  const mHTML=members.length?members.map((m,i)=>
-    `<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:12px">
-      <div style="width:36px;height:36px;border-radius:50%;background:var(--prim);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--pri)">${m.id[0].toUpperCase()}</div>
-      <div style="flex:1"><div style="font-weight:700;font-size:14px">${m.id}</div><div style="color:var(--t3);font-size:11px">PW: ${m.pw}</div></div>
-      <button class="del-m" data-idx="${i}" style="padding:6px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600">삭제</button></div>`
+  const mHTML=members.length?members.map((m,i)=>{
+    const mid=m.id||m.name||'?';
+    return`<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:12px">
+      <div style="width:36px;height:36px;border-radius:50%;background:var(--prim);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--pri)">${mid[0].toUpperCase()}</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:14px">${mid}</div><div style="color:var(--t3);font-size:11px">PW: ${m.pw||'미설정'}</div></div>
+      <button class="del-m" data-idx="${i}" style="padding:6px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600">삭제</button></div>`}
   ).join(''):'<div style="text-align:center;padding:30px;color:var(--t3)">멤버 없음</div>';
   const qHTML=quizzes.length?quizzes.map((q,i)=>
     `<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--raised);border:1px solid var(--bd);border-radius:10px;margin-bottom:6px">
