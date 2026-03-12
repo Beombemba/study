@@ -100,51 +100,59 @@ function uKey(k) { return 'u_' + currentUser + '_' + k; }
 
 // Members
 async function getMembers() {
-  const cloud = await FDB.getDoc('app', 'members');
-  if (cloud && cloud.list) { LC.set('members', cloud.list); return cloud.list; }
+  try {
+    const cloud = await FDB.getDoc('app', 'members');
+    if (cloud && cloud.list) { LC.set('members', cloud.list); return cloud.list; }
+  } catch(e) { console.error('getMembers cloud error:', e); }
   return LC.get('members') || [];
 }
 async function setMembers(m) {
   LC.set('members', m);
-  await FDB.setDoc('app', 'members', { list: m });
+  try { await FDB.setDoc('app', 'members', { list: m }); } catch(e) { console.error('setMembers error:', e); }
 }
 function getMembersLocal() { return LC.get('members') || []; }
 
 // User data
 async function getUserQuizzes() {
   if (!currentUser) return [];
-  const cloud = await FDB.getDoc('users', currentUser + '_quizzes');
-  if (cloud && cloud.data) { LC.set(uKey('quizzes'), cloud.data); return cloud.data; }
+  try {
+    const cloud = await FDB.getDoc('users', currentUser + '_quizzes');
+    if (cloud && cloud.data) { LC.set(uKey('quizzes'), cloud.data); return cloud.data; }
+  } catch(e) { console.error('getUserQuizzes cloud error:', e); }
   let q = LC.get(uKey('quizzes'));
   if (!q || !q.length) { q = []; LC.set(uKey('quizzes'), q); }
   return q;
 }
 async function setUserQuizzes(q) {
   LC.set(uKey('quizzes'), q);
-  await FDB.setDoc('users', currentUser + '_quizzes', { data: q });
+  try { await FDB.setDoc('users', currentUser + '_quizzes', { data: q }); } catch(e) { console.error('setUserQuizzes error:', e); }
 }
 function getUserQuizzesLocal() { return LC.get(uKey('quizzes')) || []; }
 
 async function getUserHistory() {
   if (!currentUser) return [];
-  const cloud = await FDB.getDoc('users', currentUser + '_history');
-  if (cloud && cloud.data) { LC.set(uKey('history'), cloud.data); return cloud.data; }
+  try {
+    const cloud = await FDB.getDoc('users', currentUser + '_history');
+    if (cloud && cloud.data) { LC.set(uKey('history'), cloud.data); return cloud.data; }
+  } catch(e) { console.error('getUserHistory cloud error:', e); }
   return LC.get(uKey('history')) || [];
 }
 async function setUserHistory(h) {
   LC.set(uKey('history'), h);
-  await FDB.setDoc('users', currentUser + '_history', { data: h });
+  try { await FDB.setDoc('users', currentUser + '_history', { data: h }); } catch(e) { console.error('setUserHistory error:', e); }
 }
 
 async function getUserSessions() {
   if (!currentUser) return {};
-  const cloud = await FDB.getDoc('users', currentUser + '_sessions');
-  if (cloud && cloud.data) { LC.set(uKey('sessions'), cloud.data); return cloud.data; }
+  try {
+    const cloud = await FDB.getDoc('users', currentUser + '_sessions');
+    if (cloud && cloud.data) { LC.set(uKey('sessions'), cloud.data); return cloud.data; }
+  } catch(e) { console.error('getUserSessions cloud error:', e); }
   return LC.get(uKey('sessions')) || {};
 }
 async function setUserSessions(s) {
   LC.set(uKey('sessions'), s);
-  await FDB.setDoc('users', currentUser + '_sessions', { data: s });
+  try { await FDB.setDoc('users', currentUser + '_sessions', { data: s }); } catch(e) { console.error('setUserSessions error:', e); }
 }
 
 // ═══════════════════
@@ -159,9 +167,9 @@ function fmt(s) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${Strin
 async function saveSession() {
   if (!S.quiz) return;
   const ss = LC.get(uKey('sessions')) || {};
-  ss[S.quizIdx] = { cur: S.cur, answers: { ...S.answers }, marks: [...S.marks], checked: [...S.checked], timer: S.timer, date: Date.now(), shuffledQuestions: S.quiz.questions };
+  ss[S.quizIdx] = { cur: S.cur, answers: { ...S.answers }, marks: [...S.marks], checked: [...S.checked], timer: S.timer, date: Date.now(), shuffleOrder: S.shuffleOrder || [] };
   LC.set(uKey('sessions'), ss);
-  await FDB.setDoc('users', currentUser + '_sessions', { data: ss });
+  try { await FDB.setDoc('users', currentUser + '_sessions', { data: ss }); } catch(e) { console.error('Session save error:', e); }
 }
 function loadSessionLocal(i) { return (LC.get(uKey('sessions')) || {})[i] || null; }
 async function clearSession(i) {
@@ -518,16 +526,32 @@ function shuffle(arr) {
 }
 
 function startQuiz(idx, mode, resume) {
-  const q = getUserQuizzesLocal(); S.quiz = { ...q[idx] }; S.quizIdx = idx; S.mode = mode;
+  const q = getUserQuizzesLocal(); 
+  const original = q[idx];
+  S.quizIdx = idx; S.mode = mode;
   S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0;
+  
   if (resume) {
     const ss = loadSessionLocal(idx);
-    if (ss) { S.cur = ss.cur; S.answers = ss.answers; S.marks = new Set(ss.marks); S.checked = new Set(ss.checked || []); S.timer = ss.timer;
-      if (ss.shuffledQuestions) S.quiz.questions = ss.shuffledQuestions;
+    if (ss) { 
+      S.cur = ss.cur; S.answers = ss.answers; S.marks = new Set(ss.marks); S.checked = new Set(ss.checked || []); S.timer = ss.timer;
+      // Restore shuffle order from saved indices
+      if (ss.shuffleOrder && ss.shuffleOrder.length) {
+        S.quiz = { ...original, questions: ss.shuffleOrder.map(i => original.questions[i]) };
+        S.shuffleOrder = ss.shuffleOrder;
+      } else {
+        S.quiz = { ...original };
+        S.shuffleOrder = original.questions.map((_, i) => i);
+      }
+    } else {
+      S.quiz = { ...original };
+      S.shuffleOrder = original.questions.map((_, i) => i);
     }
   } else {
-    // 새로 시작할 때 문제 랜덤 셔플
-    S.quiz.questions = shuffle(S.quiz.questions);
+    // 새로 시작: 셔플 인덱스 생성
+    const indices = original.questions.map((_, i) => i);
+    S.shuffleOrder = shuffle(indices);
+    S.quiz = { ...original, questions: S.shuffleOrder.map(i => original.questions[i]) };
   }
   S.screen = 'quiz'; R(); startTimer();
 }
