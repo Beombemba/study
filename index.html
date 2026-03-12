@@ -150,16 +150,16 @@ async function setUserSessions(s) {
 // ═══════════════════
 // STATE
 // ═══════════════════
-let S = { screen: 'loading', quiz: null, quizIdx: -1, cur: 0, answers: {}, marks: new Set(), submitted: false, timer: 0, timerOn: false, timerRef: null, mode: 'normal', homeTab: 'list', adminTab: 'members' };
+let S = { screen: 'loading', quiz: null, quizIdx: -1, cur: 0, answers: {}, marks: new Set(), checked: new Set(), timer: 0, timerOn: false, timerRef: null, mode: 'normal', homeTab: 'list', adminTab: 'members' };
 
 function startTimer() { S.timerOn = true; S.timerRef = setInterval(() => { S.timer++; const e = document.querySelector('#tmr'); if (e) e.textContent = fmt(S.timer) }, 1000) }
 function stopTimer() { S.timerOn = false; clearInterval(S.timerRef) }
 function fmt(s) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
 
 async function saveSession() {
-  if (!S.quiz || S.submitted) return;
+  if (!S.quiz) return;
   const ss = LC.get(uKey('sessions')) || {};
-  ss[S.quizIdx] = { cur: S.cur, answers: { ...S.answers }, marks: [...S.marks], timer: S.timer, date: Date.now() };
+  ss[S.quizIdx] = { cur: S.cur, answers: { ...S.answers }, marks: [...S.marks], checked: [...S.checked], timer: S.timer, date: Date.now(), shuffledQuestions: S.quiz.questions };
   LC.set(uKey('sessions'), ss);
   await FDB.setDoc('users', currentUser + '_sessions', { data: ss });
 }
@@ -171,8 +171,8 @@ async function clearSession(i) {
   await FDB.setDoc('users', currentUser + '_sessions', { data: ss });
 }
 
-setInterval(() => { if (S.screen === 'quiz' && !S.submitted) saveSession() }, 10000);
-document.addEventListener('visibilitychange', () => { if (document.hidden && S.screen === 'quiz' && !S.submitted) saveSession() });
+setInterval(() => { if (S.screen === 'quiz') saveSession() }, 10000);
+document.addEventListener('visibilitychange', () => { if (document.hidden && S.screen === 'quiz') saveSession() });
 
 const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
 
@@ -185,7 +185,6 @@ function R() {
     case 'admin': a.innerHTML = adminHTML(); bindAdmin(); break;
     case 'home': a.innerHTML = homeHTML(); bindHome(); break;
     case 'quiz': a.innerHTML = quizHTML(); bindQuiz(); break;
-    case 'result': a.innerHTML = resultHTML(); bindResult(); break;
     case 'review': a.innerHTML = reviewHTML(); bindReview(); break;
   }
 }
@@ -512,10 +511,24 @@ function bindHome() {
   }});
 }
 
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
 function startQuiz(idx, mode, resume) {
   const q = getUserQuizzesLocal(); S.quiz = { ...q[idx] }; S.quizIdx = idx; S.mode = mode;
-  S.cur = 0; S.answers = {}; S.marks = new Set(); S.submitted = false; S.timer = 0;
-  if (resume) { const ss = loadSessionLocal(idx); if (ss) { S.cur = ss.cur; S.answers = ss.answers; S.marks = new Set(ss.marks); S.timer = ss.timer } }
+  S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0;
+  if (resume) {
+    const ss = loadSessionLocal(idx);
+    if (ss) { S.cur = ss.cur; S.answers = ss.answers; S.marks = new Set(ss.marks); S.checked = new Set(ss.checked || []); S.timer = ss.timer;
+      if (ss.shuffledQuestions) S.quiz.questions = ss.shuffledQuestions;
+    }
+  } else {
+    // 새로 시작할 때 문제 랜덤 셔플
+    S.quiz.questions = shuffle(S.quiz.questions);
+  }
   S.screen = 'quiz'; R(); startTimer();
 }
 
@@ -523,97 +536,135 @@ function startWrongReview(idx) {
   const q = getUserQuizzesLocal()[idx]; const h = LC.get(uKey('history')) || []; const wi = new Set();
   h.filter(x => x.quizTitle === q.title).forEach(x => { if (x.wrongIndices) x.wrongIndices.forEach(i => wi.add(i)) });
   if (!wi.size) { alert('틀린 문제가 없어요! 🎉'); return }
-  const wq = [...wi].sort((a, b) => a - b).map(i => ({ ...q.questions[i], origIdx: i })).filter(Boolean);
+  const wq = shuffle([...wi].map(i => ({ ...q.questions[i], origIdx: i })).filter(Boolean));
   S.quiz = { title: q.title + ' (오답복습)', questions: wq }; S.quizIdx = idx; S.mode = 'review-wrong';
-  S.cur = 0; S.answers = {}; S.marks = new Set(); S.submitted = false; S.timer = 0; S.screen = 'quiz'; R(); startTimer();
+  S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0; S.screen = 'quiz'; R(); startTimer();
 }
 
 // ═══════════════════
-// QUIZ
+// QUIZ (즉시 채점 모드)
 // ═══════════════════
 function quizHTML() {
-  const q = S.quiz.questions[S.cur], total = S.quiz.questions.length, answered = Object.keys(S.answers).length, pct = (answered / total) * 100;
+  const q = S.quiz.questions[S.cur], total = S.quiz.questions.length;
+  const answered = Object.keys(S.answers).length, pct = (S.checked.size / total) * 100;
+  const isChecked = S.checked.has(S.cur);
+  const correct = [...S.checked].filter(i => S.answers[i] === S.quiz.questions[i].answer).length;
+
   const optsHTML = q.options.map((opt, idx) => {
-    const sel = S.answers[S.cur] === idx; let st = '', ibg = 'var(--raised)', ic = 'var(--t3)', icon = String.fromCharCode(9312 + idx);
-    if (S.submitted) { if (idx === q.answer && q.answer !== -1) { st = 'border-color:var(--ok);background:var(--okm);color:var(--ok)'; ibg = 'var(--ok)'; ic = '#fff'; icon = '✓' } else if (sel && idx !== q.answer) { st = 'border-color:var(--bad);background:var(--badm);color:var(--bad)'; ibg = 'var(--bad)'; ic = '#fff'; icon = '✗' } }
-    else if (sel) { st = 'border-color:var(--pri);background:var(--prim);color:var(--pri)'; ibg = 'var(--pri)'; ic = '#fff' }
-    return `<button class="ob" data-i="${idx}" style="display:flex;align-items:center;gap:14px;width:100%;padding:14px 16px;border-radius:var(--r);background:var(--card);border:1.5px solid var(--bd);text-align:left;font-size:15px;line-height:1.7;touch-action:manipulation;font-weight:${sel ? 600 : 400};${st}"><div style="min-width:32px;height:32px;border-radius:9px;background:${ibg};color:${ic};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0">${icon}</div><span style="flex:1">${opt}</span></button>`;
+    const sel = S.answers[S.cur] === idx;
+    let st = '', ibg = 'var(--raised)', ic = 'var(--t3)', icon = String.fromCharCode(9312 + idx);
+    if (isChecked) {
+      if (idx === q.answer && q.answer !== -1) { st = 'border-color:var(--ok);background:var(--okm);color:var(--ok)'; ibg = 'var(--ok)'; ic = '#fff'; icon = '✓' }
+      else if (sel && idx !== q.answer) { st = 'border-color:var(--bad);background:var(--badm);color:var(--bad)'; ibg = 'var(--bad)'; ic = '#fff'; icon = '✗' }
+    } else if (sel) {
+      st = 'border-color:var(--pri);background:var(--prim);color:var(--pri)'; ibg = 'var(--pri)'; ic = '#fff';
+    }
+    return `<button class="ob" data-i="${idx}" style="display:flex;align-items:center;gap:14px;width:100%;padding:14px 16px;border-radius:var(--r);background:var(--card);border:1.5px solid var(--bd);text-align:left;font-size:15px;line-height:1.7;touch-action:manipulation;font-weight:${sel ? 600 : 400};${st}${isChecked ? ';pointer-events:none' : ''}"><div style="min-width:32px;height:32px;border-radius:9px;background:${ibg};color:${ic};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0">${icon}</div><span style="flex:1">${opt}</span></button>`;
   }).join('');
-  let badge = ''; if (S.submitted) { const c = S.answers[S.cur] === q.answer, w = S.answers[S.cur] !== undefined && S.answers[S.cur] !== q.answer;
+
+  let badge = '';
+  if (isChecked) {
+    const c = S.answers[S.cur] === q.answer;
     if (c) badge = '<div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--okm);color:var(--ok);text-align:center;font-weight:800">✅ 정답!</div>';
-    else if (w) badge = '<div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--badm);color:var(--bad);text-align:center;font-weight:800">❌ 오답</div>';
-    else badge = '<div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--warnm);color:var(--warn);text-align:center;font-weight:800">미응답</div>' }
-  let exp = ''; if (S.submitted && q.explanation) exp = `<div style="margin-top:14px;padding:14px 16px;background:var(--prim);border-radius:var(--r);border:1px solid var(--bda)"><div style="color:var(--pri);font-weight:800;font-size:12px;margin-bottom:6px">💡 해설</div><div style="font-size:14px;line-height:1.8;white-space:pre-wrap">${q.explanation}</div></div>`;
+    else badge = '<div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--badm);color:var(--bad);text-align:center;font-weight:800">❌ 오답</div>';
+  }
+  let exp = '';
+  if (isChecked && q.explanation) exp = `<div style="margin-top:14px;padding:14px 16px;background:var(--prim);border-radius:var(--r);border:1px solid var(--bda)"><div style="color:var(--pri);font-weight:800;font-size:12px;margin-bottom:6px">💡 해설</div><div style="font-size:14px;line-height:1.8;white-space:pre-wrap">${q.explanation}</div></div>`;
+
+  // Bottom bar: show next button if checked, or score info
+  const isLast = S.cur === total - 1;
+  const allDone = S.checked.size === total;
+  let bottomBtn = '';
+  if (isChecked && !isLast) {
+    bottomBtn = `<button id="bnxt" class="btn bp" style="flex:1;font-size:13px">다음 문제 ▶</button>`;
+  } else if (isChecked && isLast && allDone) {
+    bottomBtn = `<button id="bfinish" class="btn bg" style="flex:1;font-size:13px">🏠 완료 (${correct}/${total})</button>`;
+  } else if (isChecked && isLast) {
+    bottomBtn = `<div style="flex:1;text-align:center;color:var(--t2);font-size:13px;font-weight:700">마지막 문제! ${correct}/${S.checked.size} 맞음</div>`;
+  } else {
+    bottomBtn = `<div style="flex:1;text-align:center;color:var(--t3);font-size:12px">답을 선택하세요</div>`;
+  }
 
   return `<div style="min-height:100dvh;display:flex;flex-direction:column">
     <div style="background:var(--sf);border-bottom:1px solid var(--bd);padding:0 14px;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)">
       <div style="max-width:860px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:50px">
-        <div style="display:flex;align-items:center;gap:8px"><button id="bpause" style="width:30px;height:30px;border-radius:8px;background:var(--raised);display:flex;align-items:center;justify-content:center;font-size:13px;border:1px solid var(--bd)">⏸</button><span style="font-weight:700;font-size:12px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.quiz.title}</span></div>
-        <div style="display:flex;align-items:center;gap:10px"><span style="color:var(--t2);font-size:12px">⏱<span id="tmr" style="font-weight:700">${fmt(S.timer)}</span></span>
-        <button id="bnav" style="background:var(--prim);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--pri)">${answered}/${total}</button></div></div>
+        <div style="display:flex;align-items:center;gap:8px"><button id="bpause" style="width:30px;height:30px;border-radius:8px;background:var(--raised);display:flex;align-items:center;justify-content:center;font-size:13px;border:1px solid var(--bd)">⏸</button><span style="font-weight:700;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.quiz.title}</span></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="color:var(--ok);font-size:12px;font-weight:700">${correct}✓</span>
+          <span style="color:var(--bad);font-size:12px;font-weight:700">${S.checked.size - correct}✗</span>
+          <button id="bnav" style="background:var(--prim);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--pri)">${S.checked.size}/${total}</button></div></div>
       <div style="height:3px;background:var(--bd)"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--pri),var(--acc));transition:width .3s"></div></div></div>
     <div id="nov" style="display:none;position:fixed;inset:0;top:54px;z-index:99;background:rgba(0,0,0,.6)">
       <div style="max-width:500px;margin:0 auto;background:var(--sf);padding:16px;max-height:70dvh;overflow-y:auto;border:1px solid var(--bd);border-radius:0 0 16px 16px" onclick="event.stopPropagation()">
         <div style="font-weight:800;margin-bottom:10px">문제 목록</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:5px">
-        ${S.quiz.questions.map((_, i) => { const a = S.answers[i] !== undefined, ic = i === S.cur; let bg = 'var(--card)', bc = 'var(--bd)', tc = 'var(--t3)';
-          if (S.submitted) { if (S.answers[i] === S.quiz.questions[i].answer) { bg = 'var(--okm)'; bc = 'var(--ok)'; tc = 'var(--ok)' } else if (a) { bg = 'var(--badm)'; bc = 'var(--bad)'; tc = 'var(--bad)' } }
-          else if (ic) { bg = 'var(--prim)'; bc = 'var(--pri)'; tc = 'var(--pri)' } else if (a) { bg = 'var(--prim)'; tc = 'var(--pri)' }
+        ${S.quiz.questions.map((qi, i) => {
+          const done = S.checked.has(i), ic = i === S.cur;
+          let bg = 'var(--card)', bc = 'var(--bd)', tc = 'var(--t3)';
+          if (done) {
+            if (S.answers[i] === qi.answer) { bg = 'var(--okm)'; bc = 'var(--ok)'; tc = 'var(--ok)' }
+            else { bg = 'var(--badm)'; bc = 'var(--bad)'; tc = 'var(--bad)' }
+          } else if (ic) { bg = 'var(--prim)'; bc = 'var(--pri)'; tc = 'var(--pri)' }
           return `<button class="nq" data-g="${i}" style="aspect-ratio:1;border:2px solid ${bc};border-radius:8px;background:${bg};color:${tc};font-size:11px;font-weight:800">${i + 1}</button>` }).join('')}
         </div></div></div>
     <div style="flex:1;padding:20px 14px;max-width:860px;margin:0 auto;width:100%">
       <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="background:var(--prim);color:var(--pri);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:800">Q.${S.cur + 1}/${total}</span><button id="bmk" style="font-size:18px">${S.marks.has(S.cur) ? '⭐' : '☆'}</button></div>
       <div style="font-size:15px;font-weight:600;line-height:1.8;margin-bottom:22px;white-space:pre-wrap;word-break:keep-all">${q.question}</div>
-      <div style="display:flex;flex-direction:column;gap:8px">${optsHTML}</div>${exp}${badge}
-      ${!S.submitted ? '<p style="text-align:center;color:var(--t3);font-size:10px;margin-top:20px">← 스와이프로 이동 →</p>' : ''}
+      <div style="display:flex;flex-direction:column;gap:8px">${optsHTML}</div>${badge}${exp}
     </div>
     <div style="background:var(--sf);border-top:1px solid var(--bd);padding:10px 14px;padding-bottom:max(10px,env(safe-area-inset-bottom));position:sticky;bottom:0;z-index:50">
-      <div style="max-width:860px;margin:0 auto;display:flex;gap:8px">
+      <div style="max-width:860px;margin:0 auto;display:flex;gap:8px;align-items:center">
         <button id="bpv" class="btn bgh" style="padding:10px 14px;font-size:13px" ${S.cur === 0 ? 'disabled' : ''}>◀</button>
-        ${!S.submitted ? `<button id="bs" class="btn bp" style="flex:1;font-size:13px;${answered === 0 ? 'opacity:.5' : ''}">채점 (${answered}/${total})</button>` : `<button id="bf" class="btn bg" style="flex:1;font-size:13px">결과 보기</button>`}
-        <button id="bnt" class="btn bgh" style="padding:10px 14px;font-size:13px" ${S.cur === total - 1 ? 'disabled' : ''}>▶</button>
+        ${bottomBtn}
+        <button id="bskip" class="btn bgh" style="padding:10px 14px;font-size:13px" ${isLast ? 'disabled' : ''}>▶</button>
       </div></div></div>`;
 }
 
 function bindQuiz() {
-  $$('.ob').forEach(b => { b.onclick = () => { if (S.submitted) return; S.answers[S.cur] = +b.dataset.i; R() } });
-  const bp = $('#bpv'), bn = $('#bnt'); if (bp) bp.onclick = () => { S.cur = Math.max(0, S.cur - 1); R() }; if (bn) bn.onclick = () => { S.cur = Math.min(S.quiz.questions.length - 1, S.cur + 1); R() };
+  // Answer selection → instant grade
+  $$('.ob').forEach(b => {
+    b.onclick = () => {
+      if (S.checked.has(S.cur)) return; // already checked
+      S.answers[S.cur] = +b.dataset.i;
+      S.checked.add(S.cur);
+      // Save wrong indices for history
+      saveSession();
+      R();
+    };
+  });
+
+  const bp = $('#bpv'), bskip = $('#bskip');
+  if (bp) bp.onclick = () => { S.cur = Math.max(0, S.cur - 1); R() };
+  if (bskip) bskip.onclick = () => { S.cur = Math.min(S.quiz.questions.length - 1, S.cur + 1); R() };
+
+  const bnxt = $('#bnxt');
+  if (bnxt) bnxt.onclick = () => { S.cur = Math.min(S.quiz.questions.length - 1, S.cur + 1); R() };
+
+  const bfinish = $('#bfinish');
+  if (bfinish) bfinish.onclick = async () => {
+    stopTimer();
+    // Save history
+    const qs = S.quiz.questions;
+    let correct = 0; const wi = [];
+    qs.forEach((q, i) => { if (S.answers[i] === q.answer) correct++; else wi.push(q.origIdx !== undefined ? q.origIdx : i) });
+    const h = LC.get(uKey('history')) || [];
+    h.unshift({ quizTitle: S.quiz.title.replace(' (오답복습)', ''), correct, total: qs.length, time: S.timer, date: Date.now(), wrongIndices: wi, mode: S.mode });
+    if (h.length > 100) h.length = 100;
+    await setUserHistory(h);
+    await clearSession(S.quizIdx);
+    resetS();
+    S.screen = 'home'; R();
+  };
+
   $('#bmk').onclick = () => { S.marks.has(S.cur) ? S.marks.delete(S.cur) : S.marks.add(S.cur); R() };
   const nav = $('#nov'); $('#bnav').onclick = () => { nav.style.display = nav.style.display === 'none' ? 'block' : 'none' }; nav.onclick = () => { nav.style.display = 'none' };
   $$('.nq').forEach(b => { b.onclick = e => { e.stopPropagation(); S.cur = +b.dataset.g; nav.style.display = 'none'; R() } });
-  const bs = $('#bs'); if (bs) bs.onclick = () => { stopTimer(); S.submitted = true; clearSession(S.quizIdx); R() };
-  const bf = $('#bf'); if (bf) bf.onclick = () => { S.screen = 'result'; R() };
   $('#bpause').onclick = () => { if (confirm('일시정지? 진행상황 자동저장됩니다.')) { saveSession(); stopTimer(); resetS(); S.screen = 'home'; R() } };
   let tx = null; document.ontouchstart = e => { tx = e.touches[0].clientX }; document.ontouchend = e => { if (tx === null) return; const d = e.changedTouches[0].clientX - tx; if (Math.abs(d) > 60) { if (d < 0 && S.cur < S.quiz.questions.length - 1) { S.cur++; R() } else if (d > 0 && S.cur > 0) { S.cur--; R() } } tx = null };
 }
 
 // ═══════════════════
-// RESULT
-// ═══════════════════
-function resultHTML() {
-  const qs = S.quiz.questions; let correct = 0; const wi = [];
-  qs.forEach((q, i) => { if (S.answers[i] === q.answer) correct++; else wi.push(q.origIdx !== undefined ? q.origIdx : i) });
-  const total = qs.length, pct = Math.round(correct / total * 100), min = Math.floor(S.timer / 60), sec = S.timer % 60;
-  let gc, gl; if (pct >= 90) { gl = 'A+'; gc = 'var(--ok)' } else if (pct >= 80) { gl = 'A'; gc = 'var(--ok)' } else if (pct >= 70) { gl = 'B'; gc = 'var(--pri)' } else if (pct >= 60) { gl = 'C'; gc = 'var(--warn)' } else { gl = 'F'; gc = 'var(--bad)' }
-  // Save history
-  const h = LC.get(uKey('history')) || [];
-  h.unshift({ quizTitle: S.quiz.title.replace(' (오답복습)', ''), correct, total, time: S.timer, date: Date.now(), wrongIndices: wi, mode: S.mode });
-  if (h.length > 100) h.length = 100;
-  setUserHistory(h);
-
-  return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px"><div style="width:100%;max-width:480px;text-align:center" class="si">
-    <div style="font-size:48px;margin-bottom:6px">🏆</div><h2 style="font-size:22px;font-weight:900;margin-bottom:4px">시험 완료!</h2><p style="color:var(--t2);font-size:13px;margin-bottom:24px">${S.quiz.title}</p>
-    <div style="width:140px;height:140px;border-radius:50%;background:var(--sf);border:5px solid ${gc};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 24px"><div style="color:${gc};font-size:38px;font-weight:900;line-height:1">${pct}%</div><div style="color:${gc};font-size:15px;font-weight:900;margin-top:4px">${gl}</div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:24px">
-      <div style="background:var(--sf);border-radius:12px;padding:14px 8px;border:1px solid var(--bd)"><div style="color:var(--ok);font-size:22px;font-weight:900">${correct}</div><div style="color:var(--t2);font-size:11px">정답</div></div>
-      <div style="background:var(--sf);border-radius:12px;padding:14px 8px;border:1px solid var(--bd)"><div style="color:var(--bad);font-size:22px;font-weight:900">${total - correct}</div><div style="color:var(--t2);font-size:11px">오답</div></div>
-      <div style="background:var(--sf);border-radius:12px;padding:14px 8px;border:1px solid var(--bd)"><div style="color:var(--pri);font-size:18px;font-weight:900">${min}:${String(sec).padStart(2, '0')}</div><div style="color:var(--t2);font-size:11px">시간</div></div></div>
-    <div style="display:flex;flex-direction:column;gap:8px"><button id="brv" class="btn bp" style="width:100%;padding:14px">📝 오답 노트</button><button id="brt" class="btn bgh" style="width:100%;padding:12px">🔄 다시 풀기</button><button id="bhm" class="btn bgh" style="width:100%;padding:12px">🏠 홈</button></div></div></div>`;
-}
-function bindResult() { $('#brv').onclick = () => { S.screen = 'review'; R() }; $('#brt').onclick = () => { S.cur = 0; S.answers = {}; S.marks = new Set(); S.submitted = false; S.timer = 0; S.screen = 'quiz'; R(); startTimer() }; $('#bhm').onclick = () => { resetS(); S.screen = 'home'; R() } }
-
-// ═══════════════════
-// REVIEW
+// REVIEW (오답 복습에서 사용)
 // ═══════════════════
 function reviewHTML() {
   const qs = S.quiz.questions; const wrongs = qs.map((q, i) => ({ ...q, idx: i, user: S.answers[i] })).filter(q => q.user !== q.answer);
@@ -631,7 +682,7 @@ function reviewHTML() {
 }
 function bindReview() { $('#bhm2').onclick = () => { resetS(); S.screen = 'home'; R() }; $$('.rtg').forEach(b => { b.onclick = () => { const d = document.querySelector('[data-rd="' + b.dataset.ri + '"]'); d.style.display = d.style.display === 'none' ? 'block' : 'none'; b.querySelector('span:last-child').textContent = d.style.display === 'none' ? '▼' : '▲' } }) }
 
-function resetS() { stopTimer(); S.quiz = null; S.quizIdx = -1; S.cur = 0; S.answers = {}; S.marks = new Set(); S.submitted = false; S.timer = 0; S.mode = 'normal' }
+function resetS() { stopTimer(); S.quiz = null; S.quizIdx = -1; S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0; S.mode = 'normal' }
 
 // ═══════════════════
 // INIT - Load from Firebase then render
