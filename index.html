@@ -14,6 +14,7 @@ html{background:var(--bg)}body{font-family:var(--fn);background:var(--bg);color:
 button{font-family:var(--fn);cursor:pointer;border:none;background:none;color:inherit}input,textarea,select{font-family:var(--fn)}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
 @keyframes scaleIn{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 .fu{animation:fadeUp .35s ease both}.si{animation:scaleIn .3s ease both}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 22px;border-radius:12px;font-size:15px;font-weight:700;transition:all .15s;touch-action:manipulation}
@@ -25,65 +26,164 @@ button{font-family:var(--fn);cursor:pointer;border:none;background:none;color:in
 .inp{width:100%;padding:13px 16px;border-radius:12px;border:1.5px solid var(--bd);background:var(--card);color:var(--t);font-size:15px;outline:none;transition:border-color .15s}
 .inp:focus{border-color:var(--pri)}
 .err{margin-top:10px;padding:10px 14px;background:var(--badm);border-radius:10px;color:var(--bad);font-size:13px;font-weight:600;display:none}
+.loader{display:inline-block;width:18px;height:18px;border:2px solid var(--bd);border-top-color:var(--pri);border-radius:50%;animation:spin .6s linear infinite}
+.sync-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-left:6px}
+.sync-ok{background:var(--ok)}.sync-err{background:var(--bad)}.sync-ing{background:var(--warn);animation:spin .6s linear infinite}
 </style>
 </head>
 <body>
 <div id="app"></div>
-<script>
 
-const PRELOADED_QUIZZES = [{"title": "ATP SU5: Aerodynamics and Airplanes (1-60)", "questions": [{"question": "Which of the following is considered an auxiliary flight control?", "options": ["Ruddervator", "Upper rudder", "Leading-edge flaps"], "answer": 2, "explanation": "Leading-edge flaps, speed brakes, spoilers, trailing-edge flaps, and leading-edge slats are auxiliary (secondary) wing flight control surfaces."}, {"question": "Which of the following is considered a primary flight control?", "options": ["Slats", "Elevator", "Dorsal fin"], "answer": 1, "explanation": "The primary flight control surfaces allow the pilot to control an airplane's movement around its lateral, longitudinal, and vertical axes. The primary flight controls are the elevator, ailerons, and rudder."}, {"question": "Which of the following are considered primary flight controls?", "options": ["Tabs", "Flaps", "Outboard ailerons"], "answer": 2, "explanation": "The primary flight control surfaces allow the pilot to control an airplane's movement around its lateral, longitudinal, and vertical axes. The primary flight controls are elevators, ailerons, and rudders."}, {"question": "When are inboard ailerons normally used?", "options": ["Low-speed flight only", "High-speed flight only", "Low-speed and high-speed flight"], "answer": 2, "explanation": "Some large aircraft use two sets of ailerons (inboard and outboard). The inboard ailerons are used during both high- and low-speed flight."}, {"question": "When are outboard ailerons normally used?", "options": ["Low-speed flight only", "High-speed flight only", "Low-speed and high-speed flight"], "answer": 0, "explanation": "At high airspeeds, the aerodynamic loads from use of the outboard ailerons twist the wingtips. The outboard ailerons are locked in the neutral position during high-speed flight."}, {"question": "Why do some airplanes equipped with inboard/outboard ailerons use the outboards for slow flight only?", "options": ["Increased surface area provides greater controllability with flap extension", "Aerodynamic loads on the outboard ailerons tend to twist the wingtips at high speeds", "Locking out the outboard ailerons in high-speed flight provides variable flight control feel"], "answer": 1, "explanation": "At high airspeeds, the aerodynamic loads from use of the outboard ailerons twist the wingtips. Locking out the outboard ailerons reduces the aerodynamic loads on the wings, preventing overstressing at high airspeeds."}, {"question": "What is the purpose of a control tab?", "options": ["Move the flight controls in the event of manual reversion", "Reduce control forces by deflecting in the proper direction to move a primary flight control", "Prevent a control surface from moving to a full-deflection position due to aerodynamic forces"], "answer": 0, "explanation": "When hydraulic pressure is lost to the primary controls, the control tabs unlock from their actuating cylinders and allow control wheel inputs. This method of secondary control is known as manual reversion."}, {"question": "What is the purpose of an elevator trim tab?", "options": ["Provide horizontal balance as airspeed is increased to allow hands-off flight", "Adjust the speed tail load for different airspeeds in flight allowing neutral control forces", "Modify the downward tail load for various airspeeds in flight eliminating flight-control pressures"], "answer": 2, "explanation": "The elevator trim tab acts on the elevators, which in turn act upon the entire airplane. This allows the pilot to adjust the angle of attack of the elevators, thus modifying the downward tail load for any airspeed in flight and eliminating the need to exert continuous flight-control pressures."}, {"question": "Which direction from the primary control surface does an elevator adjustable trim tab move when the control surface is moved?", "options": ["Same direction", "Opposite direction", "Remains fixed for all positions"], "answer": 2, "explanation": "Once adjusted, an elevator adjustable trim tab remains fixed for all positions relative to the primary control surface as the primary control surface is moved."}, {"question": "What is the purpose of a servo tab?", "options": ["Move the flight controls in the event of manual reversion", "Reduce control forces by deflecting in the proper direction to move a primary flight control", "Prevent a control surface from moving to a full-deflection position due to aerodynamic forces"], "answer": 1, "explanation": "The servo tab aids the pilot in moving a primary control surface and in holding it in the desired position."}, {"question": "Which direction from the primary control surface does a servo tab move?", "options": ["Same direction", "Opposite direction", "Remains fixed for all positions"], "answer": 1, "explanation": "Movement of the servo tab in one direction causes the primary control surface to move in the opposite direction."}, {"question": "What is the purpose of an anti-servo tab?", "options": ["Move the flight controls in the event of manual reversion", "Reduce control forces by deflecting in the proper direction to move a primary flight control", "Prevent a control surface from moving to a full-deflection position due to aerodynamic forces"], "answer": 2, "explanation": "Since the anti-servo tab moves in the same direction as the control surface, it produces a stabilizing force that increases control force pressures."}, {"question": "Which direction from the primary control surface does an anti-servo tab move?", "options": ["Same direction", "Opposite direction", "Remains fixed for all positions"], "answer": 0, "explanation": "An anti-servo tab, as found on the trailing edge of a stabilator, moves in the same direction as the primary flight control surface."}, {"question": "The primary purpose of high-lift devices is to increase the", "options": ["L/D_MAX", "lift at low speeds", "drag and reduce airspeed"], "answer": 1, "explanation": "High-lift devices increase lift at low airspeeds, allowing lowered landing and takeoff speeds."}, {"question": "Which is a purpose of leading-edge flaps?", "options": ["Increase the camber of the wing", "Reduce lift without increasing airspeed", "Direct airflow over the top of the wing at high angles of attack"], "answer": 0, "explanation": "The leading-edge flap is similar in operation to the plain flap. When actuated, the leading edge of the wing extends in a downward direction to increase the camber of the wing, providing greater lift at low flight speeds."}, {"question": "What is the primary function of the leading edge flaps in landing configuration during the flare before touchdown?", "options": ["Prevent flow separation", "Decrease rate of sink", "Increase profile drag"], "answer": 0, "explanation": "The primary function of the leading edge flaps in the landing configuration during the flare before touchdown is to prevent flow separation at low airspeeds, therefore allowing lower landing and takeoff speeds."}, {"question": "What effect does the leading edge slot in the wing have on performance?", "options": ["Decreases profile drag", "Changes the stalling angle of attack to a higher angle", "Decelerates the upper surface boundary layer air"], "answer": 1, "explanation": "The leading edge slot in a wing conducts the flow of high energy air into the boundary layer on the upper surface and delays airflow separation to some higher angle of attack."}, {"question": "Which is a purpose of leading-edge slats on high-performance wings?", "options": ["Increase lift at relative slow speeds", "Improve aileron control during low angles of attack", "Direct air from the low-pressure area under the leading edge along the top of the wing"], "answer": 0, "explanation": "Leading-edge slats direct air from the high-pressure area under the wing to the upper surface, resulting in improved stall characteristics at lower speeds. They also increase lift at relatively slow airspeeds."}, {"question": "Which is a purpose of leading-edge slats on high-performance wings?", "options": ["Decrease lift at relative slow speeds", "Improve aileron control during low angles of attack", "Direct air from the high-pressure area under the leading edge along the top of the wing"], "answer": 2, "explanation": "Leading-edge slats direct air from the high-pressure area under the wing to the upper surface, resulting in improved stall characteristics at lower speeds."}, {"question": "What is a purpose of flight spoilers?", "options": ["Increase the camber of the wing", "Increase the rate of descent without increasing airspeed", "Direct airflow over the top of the wing at high angles of attack"], "answer": 1, "explanation": "Spoilers are mounted on the upper surface of each wing, and they reduce lift without increasing airspeed. Their purpose is to spoil or disrupt the smooth flow of air over the wing to reduce the lifting force."}, {"question": "For which purpose may flight spoilers be used?", "options": ["Reduce the wings' lift upon landing", "Increase the rate of descent without increasing aerodynamic drag", "Aid in longitudinal balance when rolling an airplane into a turn"], "answer": 0, "explanation": "The purpose of spoilers is to spoil or disrupt the smooth flow of air over the wing to reduce the lifting force. Thus, flight spoilers may be used to reduce the wings' lift upon landing."}, {"question": "Flaps have more effect on", "options": ["thick wings", "thin wings", "symmetrical wings"], "answer": 0, "explanation": "The effectiveness of flaps on a wing configuration depends on many different factors. One important factor is the amount of the wing area affected by the flaps. The thicker the wing shape, the more effect the flaps have."}, {"question": "Which is a purpose of ground spoilers?", "options": ["Reduce the wings' lift upon landing", "Aid in rolling an airplane into a turn", "Increase the rate of descent without gaining airspeed"], "answer": 0, "explanation": "Spoilers are designed to spoil or disrupt the smooth flow of air over the wing to reduce the lifting force. Ground spoilers are used to reduce the wings' lift upon landing."}, {"question": "Ground spoilers used after landing are", "options": ["more effective at low speed", "equally effective at any speed", "more effective at high speed"], "answer": 2, "explanation": "Aerodynamic drag is initially the principal source of deceleration at high speed. As the speed lowers to 60-70% of landing speed, aerodynamic drag produced by ground spoilers is of little consequence."}, {"question": "Split flaps as opposed to plain flaps", "options": ["produce more lift with less drag", "produce only slightly more lift, but much more drag", "enhance takeoff performance in hot temperatures and high altitudes"], "answer": 1, "explanation": "Split flaps produce slightly more lift than plain flaps, but they also produce more drag due to the turbulent airflow behind the wing."}, {"question": "Fowler flaps as compared to split flaps", "options": ["generate more nose down pitching moment", "develop much more drag", "cause very little change in the airplane structure"], "answer": 0, "explanation": "The Fowler flap causes the greatest change in pitching moment, and the split flap causes the least."}, {"question": "Fowler flaps as compared to split flaps", "options": ["generate more nose down pitching moment", "develop much less lift", "cause very little change in the airplane wing structure and characteristics"], "answer": 0, "explanation": "The Fowler flap causes the greatest change in pitching moment, and the split flap causes the least. The Fowler flap develops much more lift than the split flap."}, {"question": "Upon landing, spoilers", "options": ["decrease directional stability on the landing rollout", "function by increasing tire to ground friction", "should be extended after the thrust reversers have been deployed"], "answer": 1, "explanation": "When spoilers are deployed on landing, most of the wing's lift is destroyed. This action transfers the airplane's weight to the landing gear so that the wheel brakes are more effective."}, {"question": "One method of boundary layer control is accomplished by injecting", "options": ["a jet of air into the leading edge to energize the boundary layer", "a low speed jet of air into the boundary layer", "a high speed jet of air into the boundary layer"], "answer": 2, "explanation": "Boundary layer control devices are an additional means of increasing the maximum lift coefficient. Injecting a high-speed jet of air into the leading edge at high angles of attack can delay the onset of a stall."}, {"question": "On most airplanes, the first 50% of flap deflection causes", "options": ["less than 50% of the total change in lift", "more than 50% of the total change in lift", "linear lift increases at the AFM specified speed"], "answer": 1, "explanation": "In most airplanes, the first 50% of flap deflection provides over half of the total lift capability of the flaps. The last 50% of flap deflection provides over half of the total drag increase of the flaps."}, {"question": "Swept wings causes a significant", "options": ["increase in effectiveness of flaps", "reduction in effectiveness of flaps", "flap actuation reliability issue"], "answer": 1, "explanation": "Swept wings cause a reduction in effectiveness of flaps."}, {"question": "Compared to a straight wing, swept wing flaps are", "options": ["as effective", "less effective", "more effective"], "answer": 1, "explanation": "The use of swept wings hinders the effectiveness of trailing edge control surfaces and high lift devices."}, {"question": "When at high angle of attack the boundary layer tends to", "options": ["stagnate and stop", "loop around the upper camber line", "decrease air pressure along the chord"], "answer": 0, "explanation": "When at a high angle of attack, the boundary layer tends to stagnate and stop. The airflow will separate from the surface and a stall occurs."}, {"question": "It is important to combine the boundary layer control with flaps since", "options": ["the flap deflection tends to reduce the angle of attack for maximum lift", "the flap deflection tends to increase the angle of attack for maximum lift", "the boundary layer controls are only effective at low power settings"], "answer": 0, "explanation": "The boundary layer control tends to increase the angle of attack, and the flaps help counter that increase by reducing the angle of attack for maximum lift."}, {"question": "What is the difference between the Fowler flap system and split flap system?", "options": ["Fowler flaps produce more drag", "Fowler flaps produce the greatest change in pitching moment", "Split flaps cause the greatest change in twisting loads"], "answer": 1, "explanation": "The types of flaps producing the greatest increases in aircraft lift coefficient, such as the Fowler flaps, produce the greatest twisting moment. The split flap causes more drag than lift and causes the least twisting moment."}, {"question": "The tucking (downward motion) of the nose of an airplane during extension of Fowler flaps is", "options": ["a sign of contamination and a no flap landing may be necessary", "normal", "abnormal"], "answer": 1, "explanation": "A Fowler flap arrangement causes the greatest change in twisting moment. This causes the tucking of the nose."}, {"question": "Leading-edge, high-lift devices are", "options": ["more effective on the highly swept wing than trailing edge flaps", "less effective than a trailing edge device on a swept wing", "more effective than flaps because of the increase in drag at relatively low angles of attack"], "answer": 0, "explanation": "Leading-edge, high-lift devices are more effective on the highly swept wing than trailing edge flaps because they are more effective at creating additional lift."}, {"question": "The first 50% of the flap deflection causes", "options": ["more than half of the total change in lift", "more than half of the total change in drag", "very little affect on lift"], "answer": 0, "explanation": "The first 50% of flap deflection causes more than half the total change in the maximum coefficient of lift (CL_MAX)."}, {"question": "What will be the ratio between airspeed and lift if the angle of attack and other factors remain constant and airspeed is doubled? Lift will be", "options": ["the same", "two times greater", "four times greater"], "answer": 2, "explanation": "Lift is proportional to the square of the airplane's velocity. If the angle of attack and other factors remain constant, an airplane traveling at 200 kt has four times the lift of the same airplane traveling at 100 kt."}, {"question": "What true airspeed and angle of attack should be used to generate the same amount of lift as altitude is increased?", "options": ["The same true airspeed and angle of attack", "A higher true airspeed for any given angle of attack", "A lower true airspeed and higher angle of attack"], "answer": 1, "explanation": "At higher altitudes, the air is less dense. In order to maintain the same amount of lift as altitude increases, an airplane must fly at a greater true airspeed for any given angle of attack."}, {"question": "How can an airplane produce the same lift in ground effect as when out of ground effect?", "options": ["The same angle of attack", "A lower angle of attack", "A higher angle of attack"], "answer": 1, "explanation": "The reduction of the wingtip vortices due to ground effect alters the spanwise lift distribution and reduces the induced angle of attack and induced drag. A lower angle of attack in ground effect is required to produce the same lift coefficient."}, {"question": "By changing the angle of attack of a wing, the pilot can control the airplane's", "options": ["lift, gross weight, and drag", "lift and airspeed, but not drag", "lift, airspeed, and drag"], "answer": 2, "explanation": "Changes in the angle of attack can affect lift, airspeed, and drag."}, {"question": "In a jet powered airplane (fan or pure jet) the angle of attack at stall is", "options": ["variable only with altitude", "very different from power on and power off", "essentially the same power on or power off"], "answer": 2, "explanation": "For a jet powered airplane, the angle of attack at stall is essentially the same whether power on or power off due to the lack of accelerated airflow moving over the wing surfaces."}, {"question": "An increase in airspeed above the stall speed will require", "options": ["a relative decrease in the relative wind", "a corresponding decrease in angle of attack and co-efficient of lift", "a corresponding increase in co-efficient of lift and drag"], "answer": 1, "explanation": "An increase in airspeed above the stall speed requires a decrease of both angle of attack and the coefficient of lift."}, {"question": "Lift coefficient must be maximum at the", "options": ["airplane stall speed", "airplane maximum maneuvering (VA) airspeed", "maximum mach operating limit (VMMO)"], "answer": 0, "explanation": "The lift coefficient will be at its maximum value at the speed the airplane stalls."}, {"question": "Propeller driven airplanes can develop more lift at slower airspeeds with high power on because", "options": ["the dynamic pressure is created downstream of the propellers", "the high power conditions decreases the maximum lift angle of attack", "the high power reduces the lift required from the wings"], "answer": 0, "explanation": "When the propeller driven airplane is at low airspeeds and high power, the dynamic pressure is much greater and causes considerably greater lift than at zero thrust."}, {"question": "What is the effect on total drag of an aircraft if the airspeed decreases in level flight below that speed for maximum L/D?", "options": ["Drag increases because of increased induced drag", "Drag increases because of increased parasite drag", "Drag decreases because of lower induced drag"], "answer": 0, "explanation": "Total drag is at a minimum for the maximum lift-drag ratio (L/DMAX). As airspeed decreases, the induced drag will increase because a greater angle of attack is required to maintain the lift coefficient."}, {"question": "What performance is characteristic of flight at maximum L/D in a propeller-driven airplane?", "options": ["Maximum range and distance glide", "Best angle of climb", "Maximum endurance"], "answer": 0, "explanation": "At maximum L/D, total drag is at a minimum. The maximum range and engine-out glide distance for a propeller-driven airplane is at maximum L/D."}, {"question": "What flight condition should be expected when an aircraft leaves ground effect?", "options": ["An increase in induced drag requiring a higher angle of attack", "A decrease in parasite drag permitting a lower angle of attack", "An increase in dynamic stability"], "answer": 0, "explanation": "When leaving ground effect, the airplane will require an increase in angle of attack to maintain the same lift coefficient, which will increase induced drag."}, {"question": "What is the relationship between induced and parasite drag when the gross weight is increased?", "options": ["Parasite drag increases more than induced drag", "Induced drag increases more than parasite drag", "Both parasite and induced drag are equally increased"], "answer": 1, "explanation": "Increasing airplane weight increases the induced drag (more lift is required) more than the parasite drag because a higher angle of attack is required to support the increased weight."}, {"question": "If the boundary layer separates", "options": ["drag will decrease", "the airflow separates from the wing surface and stall occurs", "ice will not sublime in this area"], "answer": 1, "explanation": "The boundary layer is the thick boundary that exists between the flow of air and the solid surface of the airfoil. If the boundary layer separates, the airflow separates as well, causing an increase in drag and a loss of lift that results in a stall."}, {"question": "An airplane flying at L/DMAX will have", "options": ["the same glide speed for all weights", "different glide ratios dependent on gross weight", "the same glide performance at all weights"], "answer": 2, "explanation": "Maximum glide performance is found at L/DMAX. Because this aerodynamic reference is determined at one specific angle of attack and lift coefficient, weight does not affect glide performance as long as the correct speed is maintained."}, {"question": "Any angle of attack lower or higher than L/DMAX", "options": ["increases total drag", "requires less thrust for steady state flight", "means less maneuvering margin before stalling"], "answer": 0, "explanation": "Any angle of attack lower or higher than that for L/DMAX increases the total drag for a given airplane."}, {"question": "At the end of a power-on approach in a propeller driven airplane, if the pilot sharply reduces power,", "options": ["the airplane may continue to float for a long distance down the runway", "the airplane may drop suddenly due to reduced lift", "the airplane's engine will quit running if the power is reduced suddenly"], "answer": 1, "explanation": "Airplanes with large propellers spinning rapidly in low pitch create considerable drag and may drop suddenly. In such airplanes, it is preferable to maintain power through the landing flare and touchdown."}, {"question": "A bank angle of 15° will increase induced drag by about", "options": ["3%", "7%", "15%"], "answer": 1, "explanation": "Load factor = 1/Cos(15) = 1.0353. Induced drag increase = 1.0353² = 1.072. As a percentage = (1.072 – 1) × 100 = 7.2%"}, {"question": "A bank angle of 30° will increase induced drag by about", "options": ["18%", "33%", "24%"], "answer": 1, "explanation": "Load factor = 1/Cos(30) = 1.1547. Induced drag increase = 1.1547² = 1.3333. As a percentage = (1.3333 – 1) × 100 = 33.3%"}, {"question": "A bank angle of 45° will increase induced drag by", "options": ["33%", "100%", "76%"], "answer": 1, "explanation": "Load factor = 1/Cos(45) = 1.4142. Induced drag increase = 1.4142² = 1.9999. As a percentage = (1.9999 – 1) × 100 = 99.9% ≈ 100%"}, {"question": "A bank angle of 60° will increase induced drag by", "options": ["200%", "300%", "100%"], "answer": 1, "explanation": "Load factor = 1/Cos(60) = 1.9999. Induced drag increase = 1.9999² = 3.9996. As a percentage = (3.9996 – 1) × 100 = 299.9% ≈ 300%"}, {"question": "Which is a purpose of wing-mounted vortex generators?", "options": ["Reduce the drag caused by supersonic flow over portions of the wing", "Increase the onset of drag divergence and aid in aileron effectiveness at high speed", "Break the airflow over the wing so the stall will progress from the root out to the tip of the wing"], "answer": 0, "explanation": "Rows of vortex generators located on the upper surface of the wing just upstream of the ailerons delay (reduce) the onset of drag divergence associated with supersonic airflow."}, {"question": "What affects indicated stall speed?", "options": ["Weight, load factor, and power", "Load factor, angle of attack, and power", "Angle of attack, weight, and air density"], "answer": 0, "explanation": "An airplane's indicated stall speed is affected by total airplane weight, weight distribution within the airplane, angle of bank, pitch attitude, control coordination, drag, and power settings, but NOT by angle of attack or air density."}]}];
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<script>
+// ═══════════════════
+// FIREBASE INIT
+// ═══════════════════
+const firebaseConfig = {
+  apiKey: "AIzaSyARciB7XP6ubjHdQkwBEKXI0-wsvbUeY-s",
+  authDomain: "study-11efd.firebaseapp.com",
+  projectId: "study-11efd",
+  storageBucket: "study-11efd.firebasestorage.app",
+  messagingSenderId: "967371236328",
+  appId: "1:967371236328:web:d8ea1c12335b35928bfa5d",
+  measurementId: "G-6HZHKC1B84"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
 const ADMIN_KEY = "rpj7646";
 
-// ─── Storage with user namespace ───
-const DB = {
+// ═══════════════════
+// FIRESTORE DB LAYER
+// ═══════════════════
+const FDB = {
+  async getDoc(collection, docId) {
+    try {
+      const snap = await db.collection(collection).doc(docId).get();
+      return snap.exists ? snap.data() : null;
+    } catch (e) { console.error('FDB get error:', e); return null; }
+  },
+  async setDoc(collection, docId, data) {
+    try {
+      await db.collection(collection).doc(docId).set(data, { merge: true });
+      return true;
+    } catch (e) { console.error('FDB set error:', e); return false; }
+  },
+  async deleteDoc(collection, docId) {
+    try { await db.collection(collection).doc(docId).delete(); return true; }
+    catch (e) { console.error('FDB del error:', e); return false; }
+  },
+  async getAllDocs(collection) {
+    try {
+      const snap = await db.collection(collection).get();
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) { console.error('FDB getAll error:', e); return []; }
+  }
+};
+
+// ═══════════════════
+// LOCAL CACHE + CLOUD SYNC
+// ═══════════════════
+const LC = {
   get(k) { try { return JSON.parse(localStorage.getItem('qf_' + k)) } catch { return null } },
   set(k, v) { try { localStorage.setItem('qf_' + k, JSON.stringify(v)) } catch {} },
   del(k) { try { localStorage.removeItem('qf_' + k) } catch {} }
 };
 
-// User-specific storage
-function uDB(k) { return 'u_' + currentUser + '_' + k; }
-function getMembers() { return DB.get('members') || []; }
-function setMembers(m) { DB.set('members', m); }
+let currentUser = LC.get('currentUser') || null;
+let syncStatus = 'ok'; // ok, syncing, error
 
-// Current user
-let currentUser = DB.get('currentUser') || null;
+function uKey(k) { return 'u_' + currentUser + '_' + k; }
 
-function getUserQuizzes() {
-  let q = DB.get(uDB('quizzes'));
-  if (!q || !q.length) { q = [...PRELOADED_QUIZZES]; DB.set(uDB('quizzes'), q); }
+// Members
+async function getMembers() {
+  const cloud = await FDB.getDoc('app', 'members');
+  if (cloud && cloud.list) { LC.set('members', cloud.list); return cloud.list; }
+  return LC.get('members') || [];
+}
+async function setMembers(m) {
+  LC.set('members', m);
+  await FDB.setDoc('app', 'members', { list: m });
+}
+function getMembersLocal() { return LC.get('members') || []; }
+
+// User data
+async function getUserQuizzes() {
+  if (!currentUser) return [];
+  const cloud = await FDB.getDoc('users', currentUser + '_quizzes');
+  if (cloud && cloud.data) { LC.set(uKey('quizzes'), cloud.data); return cloud.data; }
+  let q = LC.get(uKey('quizzes'));
+  if (!q || !q.length) { q = []; LC.set(uKey('quizzes'), q); }
   return q;
 }
-function setUserQuizzes(q) { DB.set(uDB('quizzes'), q); }
-function getUserHistory() { return DB.get(uDB('history')) || []; }
-function setUserHistory(h) { DB.set(uDB('history'), h); }
-function getUserSessions() { return DB.get(uDB('sessions')) || {}; }
-function setUserSessions(s) { DB.set(uDB('sessions'), s); }
+async function setUserQuizzes(q) {
+  LC.set(uKey('quizzes'), q);
+  await FDB.setDoc('users', currentUser + '_quizzes', { data: q });
+}
+function getUserQuizzesLocal() { return LC.get(uKey('quizzes')) || []; }
 
-// ─── State ───
-let S = { screen: 'auth', quiz: null, quizIdx: -1, cur: 0, answers: {}, marks: new Set(), submitted: false, timer: 0, timerOn: false, timerRef: null, mode: 'normal', homeTab: 'list', adminTab: 'members' };
+async function getUserHistory() {
+  if (!currentUser) return [];
+  const cloud = await FDB.getDoc('users', currentUser + '_history');
+  if (cloud && cloud.data) { LC.set(uKey('history'), cloud.data); return cloud.data; }
+  return LC.get(uKey('history')) || [];
+}
+async function setUserHistory(h) {
+  LC.set(uKey('history'), h);
+  await FDB.setDoc('users', currentUser + '_history', { data: h });
+}
+
+async function getUserSessions() {
+  if (!currentUser) return {};
+  const cloud = await FDB.getDoc('users', currentUser + '_sessions');
+  if (cloud && cloud.data) { LC.set(uKey('sessions'), cloud.data); return cloud.data; }
+  return LC.get(uKey('sessions')) || {};
+}
+async function setUserSessions(s) {
+  LC.set(uKey('sessions'), s);
+  await FDB.setDoc('users', currentUser + '_sessions', { data: s });
+}
+
+// ═══════════════════
+// STATE
+// ═══════════════════
+let S = { screen: 'loading', quiz: null, quizIdx: -1, cur: 0, answers: {}, marks: new Set(), submitted: false, timer: 0, timerOn: false, timerRef: null, mode: 'normal', homeTab: 'list', adminTab: 'members' };
 
 function startTimer() { S.timerOn = true; S.timerRef = setInterval(() => { S.timer++; const e = document.querySelector('#tmr'); if (e) e.textContent = fmt(S.timer) }, 1000) }
 function stopTimer() { S.timerOn = false; clearInterval(S.timerRef) }
 function fmt(s) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
 
-function saveSession() { if (!S.quiz || S.submitted) return; const ss = getUserSessions(); ss[S.quizIdx] = { cur: S.cur, answers: { ...S.answers }, marks: [...S.marks], timer: S.timer, date: Date.now() }; setUserSessions(ss) }
-function loadSession(i) { return (getUserSessions())[i] || null }
-function clearSession(i) { const ss = getUserSessions(); delete ss[i]; setUserSessions(ss) }
-setInterval(() => { if (S.screen === 'quiz' && !S.submitted) saveSession() }, 5000);
+async function saveSession() {
+  if (!S.quiz || S.submitted) return;
+  const ss = LC.get(uKey('sessions')) || {};
+  ss[S.quizIdx] = { cur: S.cur, answers: { ...S.answers }, marks: [...S.marks], timer: S.timer, date: Date.now() };
+  LC.set(uKey('sessions'), ss);
+  await FDB.setDoc('users', currentUser + '_sessions', { data: ss });
+}
+function loadSessionLocal(i) { return (LC.get(uKey('sessions')) || {})[i] || null; }
+async function clearSession(i) {
+  const ss = LC.get(uKey('sessions')) || {};
+  delete ss[i];
+  LC.set(uKey('sessions'), ss);
+  await FDB.setDoc('users', currentUser + '_sessions', { data: ss });
+}
+
+setInterval(() => { if (S.screen === 'quiz' && !S.submitted) saveSession() }, 10000);
 document.addEventListener('visibilitychange', () => { if (document.hidden && S.screen === 'quiz' && !S.submitted) saveSession() });
 
 const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
 
 function R() {
   const a = $('#app');
-  // Check auth first
-  if (!currentUser) { S.screen = 'auth'; }
+  if (!currentUser && S.screen !== 'admin' && S.screen !== 'loading') { S.screen = 'auth'; }
   switch (S.screen) {
+    case 'loading': a.innerHTML = loadingHTML(); break;
     case 'auth': a.innerHTML = authHTML(); bindAuth(); break;
     case 'admin': a.innerHTML = adminHTML(); bindAdmin(); break;
     case 'home': a.innerHTML = homeHTML(); bindHome(); break;
-    case 'create': a.innerHTML = createHTML(); bindCreate(); break;
     case 'quiz': a.innerHTML = quizHTML(); bindQuiz(); break;
     case 'result': a.innerHTML = resultHTML(); bindResult(); break;
     case 'review': a.innerHTML = reviewHTML(); bindReview(); break;
@@ -91,10 +191,22 @@ function R() {
 }
 
 // ═══════════════════
-// AUTH SCREEN
+// LOADING
+// ═══════════════════
+function loadingHTML() {
+  return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px">
+    <div style="display:inline-flex;align-items:center;gap:10px;background:var(--prim);padding:10px 22px;border-radius:50px">
+      <div style="width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--pri),var(--acc));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;color:#fff">Q</div>
+      <span style="font-weight:900;font-size:19px">ATP CBT</span></div>
+    <div><span class="loader"></span> <span style="color:var(--t2);font-size:13px;margin-left:8px">클라우드 동기화 중...</span></div>
+  </div>`;
+}
+
+// ═══════════════════
+// AUTH
 // ═══════════════════
 function authHTML() {
-  const members = getMembers();
+  const members = getMembersLocal();
   const memberList = members.length ? members.map(m =>
     `<button class="member-btn fu" data-name="${m.name}" style="animation-delay:${members.indexOf(m) * .04}s;display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);text-align:left;transition:all .15s">
       <div style="width:40px;height:40px;border-radius:50%;background:var(--prim);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:var(--pri)">${m.name[0].toUpperCase()}</div>
@@ -110,75 +222,60 @@ function authHTML() {
           <div style="width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--pri),var(--acc));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;color:#fff">Q</div>
           <span style="font-weight:900;font-size:19px">ATP CBT</span></div>
         <h1 style="font-size:24px;font-weight:900;margin-bottom:6px">로그인</h1>
-        <p style="color:var(--t2);font-size:13px">본인 이름을 선택하세요</p>
+        <p style="color:var(--t2);font-size:13px">본인 이름을 선택하세요 <span style="color:var(--ok);font-size:11px">☁️ 클라우드 연동</span></p>
       </div>
-
       <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">${memberList}</div>
-
-      <!-- Password modal (hidden) -->
       <div id="pw-modal" style="display:none;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:16px">
         <div id="pw-title" style="font-weight:800;font-size:15px;margin-bottom:12px"></div>
-        <input id="pw-input" type="password" class="inp" placeholder="비밀번호 입력" style="margin-bottom:8px">
-        <div id="pw-confirm-wrap" style="display:none"><input id="pw-confirm" type="password" class="inp" placeholder="비밀번호 확인" style="margin-bottom:8px"></div>
+        <input id="pw-input" class="inp" type="password" placeholder="비밀번호">
+        <div id="pw-set" style="display:none;margin-top:8px"><input id="pw-confirm" class="inp" type="password" placeholder="비밀번호 확인" style="margin-bottom:8px"></div>
         <div id="pw-err" class="err"></div>
-        <button id="pw-btn" class="btn bp" style="width:100%;margin-top:8px;padding:12px">확인</button>
-        <button id="pw-cancel" class="btn bgh" style="width:100%;margin-top:6px;padding:10px;font-size:13px">취소</button>
+        <div style="display:flex;gap:8px;margin-top:12px"><button id="pw-cancel" class="btn bgh" style="flex:1;font-size:13px">취소</button><button id="pw-btn" class="btn bp" style="flex:1;font-size:13px">확인</button></div>
       </div>
-
       <button id="btn-admin" class="btn bgh" style="width:100%;padding:12px;font-size:13px;margin-top:8px">🔧 관리자</button>
-    </div>
-  </div>`;
+    </div></div>`;
 }
 
-let selectedMember = null;
 function bindAuth() {
+  let selectedMember = null;
   $$('.member-btn').forEach(b => {
     b.onclick = () => {
-      const name = b.dataset.name;
-      const members = getMembers();
-      const member = members.find(m => m.name === name);
-      selectedMember = member;
-
-      const modal = $('#pw-modal');
-      const title = $('#pw-title');
-      const confirmWrap = $('#pw-confirm-wrap');
-      modal.style.display = 'block';
-
-      if (!member.pw) {
-        title.textContent = `${name}님, 비밀번호를 설정하세요`;
-        confirmWrap.style.display = 'block';
+      selectedMember = getMembersLocal().find(m => m.name === b.dataset.name);
+      if (!selectedMember) return;
+      const modal = $('#pw-modal'), title = $('#pw-title'), err = $('#pw-err'), setDiv = $('#pw-set');
+      err.style.display = 'none';
+      if (!selectedMember.pw) {
+        title.textContent = `${selectedMember.name}님 — 비밀번호 설정`;
+        setDiv.style.display = 'block';
       } else {
-        title.textContent = `${name}님, 비밀번호를 입력하세요`;
-        confirmWrap.style.display = 'none';
+        title.textContent = `${selectedMember.name}님 — 로그인`;
+        setDiv.style.display = 'none';
       }
+      modal.style.display = 'block';
       $('#pw-input').value = '';
-      $('#pw-confirm').value = '';
-      $('#pw-err').style.display = 'none';
-      $('#pw-input').focus();
+      const pc = $('#pw-confirm'); if (pc) pc.value = '';
+      setTimeout(() => $('#pw-input').focus(), 100);
     };
   });
 
-  $('#pw-btn').onclick = () => {
-    const pw = $('#pw-input').value;
+  $('#pw-btn').onclick = async () => {
     const err = $('#pw-err');
-
+    if (!selectedMember) return;
     if (!selectedMember.pw) {
-      // First login - set password
-      const confirm = $('#pw-confirm').value;
-      if (pw.length < 2) { err.textContent = '비밀번호를 2자 이상 입력하세요'; err.style.display = 'block'; return; }
-      if (pw !== confirm) { err.textContent = '비밀번호가 일치하지 않습니다'; err.style.display = 'block'; return; }
-      const members = getMembers();
-      const idx = members.findIndex(m => m.name === selectedMember.name);
-      members[idx].pw = pw;
-      setMembers(members);
+      const pw = $('#pw-input').value, pw2 = $('#pw-confirm').value;
+      if (!pw || pw.length < 2) { err.textContent = '2자 이상 입력하세요'; err.style.display = 'block'; return; }
+      if (pw !== pw2) { err.textContent = '비밀번호가 일치하지 않습니다'; err.style.display = 'block'; return; }
+      const members = getMembersLocal();
+      const m = members.find(x => x.name === selectedMember.name);
+      if (m) m.pw = pw;
+      await setMembers(members);
       currentUser = selectedMember.name;
-      DB.set('currentUser', currentUser);
+      LC.set('currentUser', currentUser);
       S.screen = 'home'; R();
     } else {
-      // Login
-      if (pw === selectedMember.pw) {
+      if ($('#pw-input').value === selectedMember.pw) {
         currentUser = selectedMember.name;
-        DB.set('currentUser', currentUser);
+        LC.set('currentUser', currentUser);
         S.screen = 'home'; R();
       } else {
         err.textContent = '비밀번호가 틀렸습니다'; err.style.display = 'block';
@@ -186,10 +283,8 @@ function bindAuth() {
     }
   };
 
-  // Enter key
   $('#pw-input').onkeydown = (e) => { if (e.key === 'Enter') { if (selectedMember && selectedMember.pw) $('#pw-btn').click(); else $('#pw-confirm').focus(); } };
   const pc = $('#pw-confirm'); if (pc) pc.onkeydown = (e) => { if (e.key === 'Enter') $('#pw-btn').click(); };
-
   $('#pw-cancel').onclick = () => { $('#pw-modal').style.display = 'none'; selectedMember = null; };
 
   $('#btn-admin').onclick = () => {
@@ -200,10 +295,10 @@ function bindAuth() {
 }
 
 // ═══════════════════
-// ADMIN SCREEN
+// ADMIN
 // ═══════════════════
 function adminHTML() {
-  const members = getMembers();
+  const members = getMembersLocal();
   const mHTML = members.length ? members.map((m, i) =>
     `<div class="fu" style="animation-delay:${i * .03}s;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:12px">
       <div style="width:36px;height:36px;border-radius:50%;background:var(--prim);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--pri)">${m.name[0].toUpperCase()}</div>
@@ -214,10 +309,22 @@ function adminHTML() {
     </div>`
   ).join('') : '<div style="text-align:center;padding:30px;color:var(--t3)">멤버 없음</div>';
 
+  // Collect all quiz titles from all members
+  const allQuizTitles = new Set();
+  members.forEach(m => {
+    const qs = LC.get('u_' + m.name + '_quizzes') || [];
+    qs.forEach(q => allQuizTitles.add(q.title));
+  });
+  const quizDelHTML = [...allQuizTitles].length ? [...allQuizTitles].map((t, i) =>
+    `<div class="fu" style="animation-delay:${i * .03}s;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--raised);border:1px solid var(--bd);border-radius:10px;margin-bottom:6px">
+      <div style="flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t}</div>
+      <button class="del-quiz-all" data-title="${t.replace(/"/g, '&quot;')}" style="padding:5px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600;white-space:nowrap">삭제</button></div>`
+  ).join('') : '<div style="text-align:center;padding:20px;color:var(--t3);font-size:12px">문제집 없음</div>';
+
   return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px">
     <div style="width:100%;max-width:500px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-        <h2 style="font-size:20px;font-weight:900">🔧 관리자 패널</h2>
+        <h2 style="font-size:20px;font-weight:900">🔧 관리자 패널 <span style="color:var(--ok);font-size:11px">☁️</span></h2>
         <button id="adm-back" class="btn bgh" style="padding:8px 14px;font-size:12px">← 돌아가기</button>
       </div>
 
@@ -231,7 +338,7 @@ function adminHTML() {
       </div>
 
       <div style="background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:12px">
-        <div style="font-weight:700;font-size:14px;margin-bottom:8px">📋 문제집 관리 (JSON 추가)</div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:8px">📋 문제집 추가 (JSON)</div>
         <textarea id="adm-json" placeholder="JSON 붙여넣기로 문제집 추가..." style="width:100%;min-height:100px;padding:12px;border-radius:10px;border:1.5px solid var(--bd);background:var(--raised);color:var(--t);font-size:12px;resize:vertical;outline:none;margin-bottom:8px"></textarea>
         <div id="adm-jerr" class="err"></div>
         <button id="adm-add-quiz" class="btn bp" style="width:100%;padding:10px;font-size:13px">전체 멤버에게 문제집 추가</button>
@@ -240,78 +347,65 @@ function adminHTML() {
       <div style="background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:12px">
         <div style="font-weight:700;font-size:14px;margin-bottom:8px">🗑 문제집 삭제 (전체 멤버)</div>
         <div style="color:var(--t2);font-size:11px;margin-bottom:10px">선택한 문제집을 모든 멤버에게서 삭제합니다</div>
-        ${(() => {
-          const allQuizTitles = new Set();
-          members.forEach(m => {
-            const prev = currentUser; currentUser = m.name;
-            const qs = getUserQuizzes(); qs.forEach(q => allQuizTitles.add(q.title));
-            currentUser = prev;
-          });
-          return [...allQuizTitles].length ? [...allQuizTitles].map((t, i) =>
-            '<div class="fu" style="animation-delay:' + (i * .03) + 's;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--raised);border:1px solid var(--bd);border-radius:10px;margin-bottom:6px">' +
-            '<div style="flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + t + '</div>' +
-            '<button class="del-quiz-all" data-title="' + t.replace(/"/g, '&quot;') + '" style="padding:5px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600;white-space:nowrap">삭제</button></div>'
-          ).join('') : '<div style="text-align:center;padding:20px;color:var(--t3);font-size:12px">문제집 없음</div>';
-        })()}
+        ${quizDelHTML}
       </div>
     </div>
   </div>`;
 }
 
 function bindAdmin() {
-  $('#adm-back').onclick = () => { S.screen = 'auth'; currentUser = null; DB.del('currentUser'); R(); };
+  $('#adm-back').onclick = () => { S.screen = 'auth'; currentUser = null; LC.del('currentUser'); R(); };
 
-  $('#add-member').onclick = () => {
+  $('#add-member').onclick = async () => {
     const name = $('#new-name').value.trim();
     if (!name) return;
-    const members = getMembers();
+    const members = getMembersLocal();
     if (members.find(m => m.name === name)) { alert('이미 존재하는 이름입니다'); return; }
     members.push({ name, pw: null });
-    setMembers(members);
+    await setMembers(members);
     R();
   };
   $('#new-name').onkeydown = (e) => { if (e.key === 'Enter') $('#add-member').click(); };
 
   $$('.del-m').forEach(b => {
-    b.onclick = () => {
-      const members = getMembers();
+    b.onclick = async () => {
+      const members = getMembersLocal();
       const idx = +b.dataset.idx;
       if (!confirm(`${members[idx].name}님을 삭제할까요?`)) return;
       members.splice(idx, 1);
-      setMembers(members);
+      await setMembers(members);
       R();
     };
   });
 
   $$('.reset-pw').forEach(b => {
-    b.onclick = () => {
-      const members = getMembers();
+    b.onclick = async () => {
+      const members = getMembersLocal();
       const idx = +b.dataset.idx;
       members[idx].pw = null;
-      setMembers(members);
+      await setMembers(members);
       alert(`${members[idx].name}님 비밀번호가 초기화되었습니다`);
       R();
     };
   });
 
-  $('#adm-add-quiz').onclick = () => {
+  $('#adm-add-quiz').onclick = async () => {
     try {
       const p = JSON.parse($('#adm-json').value.trim());
       if (!p.questions?.length) throw new Error('questions 없음');
       const quiz = { title: p.title || '새 문제집', questions: p.questions };
-      // Add to all members
-      const members = getMembers();
-      members.forEach(m => {
+      const members = getMembersLocal();
+      for (const m of members) {
         const prev = currentUser;
         currentUser = m.name;
-        const qs = getUserQuizzes();
+        const qs = getUserQuizzesLocal();
         qs.unshift(quiz);
-        setUserQuizzes(qs);
+        await setUserQuizzes(qs);
         currentUser = prev;
-      });
-      // Also update preloaded for new members
-      alert(`${members.length}명 멤버에게 문제집 추가 완료!`);
+      }
+      alert(`${members.length}명 멤버에게 문제집 추가 완료! ☁️`);
       $('#adm-json').value = '';
+      R();
     } catch (e) {
       $('#adm-jerr').style.display = 'block';
       $('#adm-jerr').textContent = '❌ ' + e.message;
@@ -320,39 +414,39 @@ function bindAdmin() {
 
   // Quiz delete for all members
   $$('.del-quiz-all').forEach(b => {
-    b.onclick = () => {
+    b.onclick = async () => {
       const title = b.dataset.title;
       if (!confirm(`"${title}" 문제집을 전체 멤버에게서 삭제할까요?`)) return;
-      const members = getMembers();
+      const members = getMembersLocal();
       let count = 0;
-      members.forEach(m => {
+      for (const m of members) {
         const prev = currentUser;
         currentUser = m.name;
-        const qs = getUserQuizzes();
+        const qs = getUserQuizzesLocal();
         const filtered = qs.filter(q => q.title !== title);
         if (filtered.length < qs.length) count++;
-        setUserQuizzes(filtered);
-        // Also clean up sessions for deleted quiz indices
-        const ss = getUserSessions();
+        await setUserQuizzes(filtered);
+        // Clean up sessions
+        const ss = LC.get(uKey('sessions')) || {};
         const newSs = {};
-        filtered.forEach((q, i) => {
+        filtered.forEach((q, idx) => {
           const oldIdx = qs.findIndex(oq => oq.title === q.title);
-          if (oldIdx !== -1 && ss[oldIdx]) newSs[i] = ss[oldIdx];
+          if (oldIdx !== -1 && ss[oldIdx]) newSs[idx] = ss[oldIdx];
         });
-        setUserSessions(newSs);
+        await setUserSessions(newSs);
         currentUser = prev;
-      });
-      alert(`${count}명의 멤버에게서 "${title}" 삭제 완료!`);
+      }
+      alert(`${count}명의 멤버에게서 "${title}" 삭제 완료! ☁️`);
       R();
     };
   });
 }
 
 // ═══════════════════
-// HOME SCREEN
+// HOME
 // ═══════════════════
 function homeHTML() {
-  const quizzes = getUserQuizzes(), history = getUserHistory(), sessions = getUserSessions();
+  const quizzes = getUserQuizzesLocal(), history = LC.get(uKey('history')) || [], sessions = LC.get(uKey('sessions')) || {};
   const listHTML = quizzes.length ? quizzes.map((q, i) => {
     const sess = sessions[i]; const prog = sess ? Math.round(Object.keys(sess.answers).length / q.questions.length * 100) : 0;
     const past = history.filter(h => h.quizTitle === q.title);
@@ -381,7 +475,7 @@ function homeHTML() {
 
   return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px"><div style="width:100%;max-width:560px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <div><div style="font-size:13px;color:var(--t2)">환영합니다</div><div style="font-size:20px;font-weight:900">${currentUser}님 ✈️</div></div>
+      <div><div style="font-size:13px;color:var(--t2)">환영합니다</div><div style="font-size:20px;font-weight:900">${currentUser}님 ✈️ <span style="color:var(--ok);font-size:11px">☁️</span></div></div>
       <button id="logout" class="btn bgh" style="padding:8px 14px;font-size:12px">로그아웃</button>
     </div>
     <div class="tabs" style="margin-bottom:16px"><div class="tab ${S.homeTab === 'list' ? 'on' : ''}" data-ht="list">📚 문제집</div><div class="tab ${S.homeTab === 'history' ? 'on' : ''}" data-ht="history">📊 내 기록</div></div>
@@ -393,41 +487,40 @@ function homeHTML() {
 
 function bindHome() {
   $$('[data-ht]').forEach(t => { t.onclick = () => { S.homeTab = t.dataset.ht; R() } });
-  $('#logout').onclick = () => { currentUser = null; DB.del('currentUser'); resetS(); S.screen = 'auth'; R(); };
-  const ch = $('#clrh'); if (ch) ch.onclick = () => { if (confirm('기록 삭제?')) { setUserHistory([]); R() } };
+  $('#logout').onclick = () => { currentUser = null; LC.del('currentUser'); resetS(); S.screen = 'auth'; R(); };
+  const ch = $('#clrh'); if (ch) ch.onclick = async () => { if (confirm('기록 삭제?')) { await setUserHistory([]); R() } };
   $$('[data-play]').forEach(el => { el.onclick = () => startQuiz(+el.dataset.play, 'normal', false) });
   $$('[data-start]').forEach(el => { el.onclick = e => { e.stopPropagation(); clearSession(+el.dataset.start); startQuiz(+el.dataset.start, 'normal', false) } });
   $$('[data-resume]').forEach(el => { el.onclick = e => { e.stopPropagation(); startQuiz(+el.dataset.resume, 'normal', true) } });
   $$('[data-wrong]').forEach(el => { el.onclick = e => { e.stopPropagation(); startWrongReview(+el.dataset.wrong) } });
-  $$('[data-delq]').forEach(el => { el.onclick = e => {
+  $$('[data-delq]').forEach(el => { el.onclick = async e => {
     e.stopPropagation();
     const idx = +el.dataset.delq;
-    const qs = getUserQuizzes();
+    const qs = getUserQuizzesLocal();
     if (!confirm(`"${qs[idx].title}" 문제집을 삭제할까요?`)) return;
     qs.splice(idx, 1);
-    setUserQuizzes(qs);
-    // Clean up sessions
-    const ss = getUserSessions();
+    await setUserQuizzes(qs);
+    const ss = LC.get(uKey('sessions')) || {};
     const newSs = {};
     Object.keys(ss).forEach(k => {
       const ki = +k;
       if (ki < idx) newSs[ki] = ss[ki];
       else if (ki > idx) newSs[ki - 1] = ss[ki];
     });
-    setUserSessions(newSs);
+    await setUserSessions(newSs);
     R();
   }});
 }
 
 function startQuiz(idx, mode, resume) {
-  const q = getUserQuizzes(); S.quiz = { ...q[idx] }; S.quizIdx = idx; S.mode = mode;
+  const q = getUserQuizzesLocal(); S.quiz = { ...q[idx] }; S.quizIdx = idx; S.mode = mode;
   S.cur = 0; S.answers = {}; S.marks = new Set(); S.submitted = false; S.timer = 0;
-  if (resume) { const ss = loadSession(idx); if (ss) { S.cur = ss.cur; S.answers = ss.answers; S.marks = new Set(ss.marks); S.timer = ss.timer } }
+  if (resume) { const ss = loadSessionLocal(idx); if (ss) { S.cur = ss.cur; S.answers = ss.answers; S.marks = new Set(ss.marks); S.timer = ss.timer } }
   S.screen = 'quiz'; R(); startTimer();
 }
 
 function startWrongReview(idx) {
-  const q = getUserQuizzes()[idx]; const h = getUserHistory(); const wi = new Set();
+  const q = getUserQuizzesLocal()[idx]; const h = LC.get(uKey('history')) || []; const wi = new Set();
   h.filter(x => x.quizTitle === q.title).forEach(x => { if (x.wrongIndices) x.wrongIndices.forEach(i => wi.add(i)) });
   if (!wi.size) { alert('틀린 문제가 없어요! 🎉'); return }
   const wq = [...wi].sort((a, b) => a - b).map(i => ({ ...q.questions[i], origIdx: i })).filter(Boolean);
@@ -436,7 +529,7 @@ function startWrongReview(idx) {
 }
 
 // ═══════════════════
-// QUIZ SCREEN
+// QUIZ
 // ═══════════════════
 function quizHTML() {
   const q = S.quiz.questions[S.cur], total = S.quiz.questions.length, answered = Object.keys(S.answers).length, pct = (answered / total) * 100;
@@ -502,7 +595,12 @@ function resultHTML() {
   qs.forEach((q, i) => { if (S.answers[i] === q.answer) correct++; else wi.push(q.origIdx !== undefined ? q.origIdx : i) });
   const total = qs.length, pct = Math.round(correct / total * 100), min = Math.floor(S.timer / 60), sec = S.timer % 60;
   let gc, gl; if (pct >= 90) { gl = 'A+'; gc = 'var(--ok)' } else if (pct >= 80) { gl = 'A'; gc = 'var(--ok)' } else if (pct >= 70) { gl = 'B'; gc = 'var(--pri)' } else if (pct >= 60) { gl = 'C'; gc = 'var(--warn)' } else { gl = 'F'; gc = 'var(--bad)' }
-  const h = getUserHistory(); h.unshift({ quizTitle: S.quiz.title.replace(' (오답복습)', ''), correct, total, time: S.timer, date: Date.now(), wrongIndices: wi, mode: S.mode }); if (h.length > 100) h.length = 100; setUserHistory(h);
+  // Save history
+  const h = LC.get(uKey('history')) || [];
+  h.unshift({ quizTitle: S.quiz.title.replace(' (오답복습)', ''), correct, total, time: S.timer, date: Date.now(), wrongIndices: wi, mode: S.mode });
+  if (h.length > 100) h.length = 100;
+  setUserHistory(h);
+
   return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px"><div style="width:100%;max-width:480px;text-align:center" class="si">
     <div style="font-size:48px;margin-bottom:6px">🏆</div><h2 style="font-size:22px;font-weight:900;margin-bottom:4px">시험 완료!</h2><p style="color:var(--t2);font-size:13px;margin-bottom:24px">${S.quiz.title}</p>
     <div style="width:140px;height:140px;border-radius:50%;background:var(--sf);border:5px solid ${gc};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 24px"><div style="color:${gc};font-size:38px;font-weight:900;line-height:1">${pct}%</div><div style="color:${gc};font-size:15px;font-weight:900;margin-top:4px">${gl}</div></div>
@@ -535,7 +633,31 @@ function bindReview() { $('#bhm2').onclick = () => { resetS(); S.screen = 'home'
 
 function resetS() { stopTimer(); S.quiz = null; S.quizIdx = -1; S.cur = 0; S.answers = {}; S.marks = new Set(); S.submitted = false; S.timer = 0; S.mode = 'normal' }
 
-R();
+// ═══════════════════
+// INIT - Load from Firebase then render
+// ═══════════════════
+async function init() {
+  R(); // show loading
+  try {
+    // Load members from cloud
+    const members = await getMembers();
+    // If user was logged in, load their data
+    if (currentUser) {
+      await getUserQuizzes();
+      await getUserHistory();
+      await getUserSessions();
+      S.screen = 'home';
+    } else {
+      S.screen = 'auth';
+    }
+  } catch (e) {
+    console.error('Init error:', e);
+    S.screen = 'auth';
+  }
+  R();
+}
+
+init();
 
 </script>
 </body>
