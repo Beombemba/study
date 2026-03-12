@@ -73,7 +73,14 @@ function membersLocal(){return LC.get('members')||[]}
 
 // Quizzes (shared, chunked)
 async function loadQuizList(){
-  try{const s=await db.collection('quizzes').orderBy('order').get();const l=s.docs.map(d=>({id:d.id,title:d.data().title,count:d.data().count||0,order:d.data().order||0}));LC.set('quizList',l);return l}catch(e){console.warn(e)}
+  try{
+    let s;
+    try { s=await db.collection('quizzes').orderBy('order').get(); }
+    catch(e) { s=await db.collection('quizzes').get(); } // fallback without order
+    const l=s.docs.map(d=>({id:d.id,title:d.data().title,count:d.data().count||0,order:d.data().order||0}));
+    l.sort((a,b)=>a.order-b.order);
+    LC.set('quizList',l);return l;
+  }catch(e){console.warn(e)}
   return LC.get('quizList')||[];
 }
 function quizListLocal(){return LC.get('quizList')||[]}
@@ -475,8 +482,16 @@ function resetS(){stopTimer();S.quiz=null;S.quizId=null;S.cur=0;S.answers={};S.m
 
 // ═══ INIT ═══
 async function init(){
-  R();
-  try{await loadMembers();await loadQuizList();if(currentUser){await loadUserData();S.screen='home'}else S.screen='auth'}catch(e){console.error(e);S.screen='auth'}
+  R(); // show loading
+  // Timeout: if Firebase takes too long, go to auth anyway
+  const timeout = new Promise(res => setTimeout(() => res('timeout'), 5000));
+  const load = (async () => {
+    try { await loadMembers(); await loadQuizList(); } catch(e) { console.warn('Init load error:', e); }
+    if (currentUser) { try { await loadUserData(); } catch(e) { console.warn('User data error:', e); } }
+    return 'done';
+  })();
+  await Promise.race([load, timeout]);
+  S.screen = currentUser ? 'home' : 'auth';
   R();
 }
 init();
