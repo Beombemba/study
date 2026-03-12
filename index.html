@@ -190,6 +190,12 @@ function authHTML(){
       <div id="login-err" class="err"></div>
       <button id="login-btn" class="btn bp" style="width:100%;padding:14px;font-size:15px">로그인</button></div>
     <button id="btn-admin" class="btn bgh" style="width:100%;padding:12px;font-size:13px">🔧 관리자</button>
+    <div id="admin-modal" style="display:none;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-top:12px">
+      <div style="font-weight:800;font-size:15px;margin-bottom:12px">관리자 비밀번호</div>
+      <input id="admin-pw" class="inp" type="password" placeholder="비밀번호 입력">
+      <div id="admin-err" class="err"></div>
+      <div style="display:flex;gap:8px;margin-top:12px"><button id="admin-cancel" class="btn bgh" style="flex:1;font-size:13px">취소</button><button id="admin-go" class="btn bp" style="flex:1;font-size:13px">확인</button></div>
+    </div>
   </div></div>`;
 }
 function bindAuth(){
@@ -206,7 +212,14 @@ function bindAuth(){
   $('#login-btn').onclick=doLogin;
   $('#login-pw').onkeydown=e=>{if(e.key==='Enter')doLogin()};
   $('#login-id').onkeydown=e=>{if(e.key==='Enter')$('#login-pw').focus()};
-  $('#btn-admin').onclick=()=>{const pw=prompt('관리자 비밀번호');if(pw===ADMIN_KEY){S.screen='admin';R()}else if(pw!==null)alert('비밀번호 오류')};
+  $('#btn-admin').onclick=()=>{$('#admin-modal').style.display='block';$('#admin-pw').value='';$('#admin-err').style.display='none';setTimeout(()=>$('#admin-pw').focus(),100)};
+  $('#admin-cancel').onclick=()=>{$('#admin-modal').style.display='none'};
+  $('#admin-go').onclick=()=>{
+    const pw=$('#admin-pw').value;
+    if(pw===ADMIN_KEY){S.screen='admin';R()}
+    else{$('#admin-err').textContent='비밀번호 오류';$('#admin-err').style.display='block'}
+  };
+  $('#admin-pw').onkeydown=e=>{if(e.key==='Enter')$('#admin-go').click()};
 }
 
 // ═══ ADMIN ═══
