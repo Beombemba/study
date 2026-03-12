@@ -27,173 +27,193 @@ button{font-family:var(--fn);cursor:pointer;border:none;background:none;color:in
 .inp:focus{border-color:var(--pri)}
 .err{margin-top:10px;padding:10px 14px;background:var(--badm);border-radius:10px;color:var(--bad);font-size:13px;font-weight:600;display:none}
 .loader{display:inline-block;width:18px;height:18px;border:2px solid var(--bd);border-top-color:var(--pri);border-radius:50%;animation:spin .6s linear infinite}
-.sync-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-left:6px}
-.sync-ok{background:var(--ok)}.sync-err{background:var(--bad)}.sync-ing{background:var(--warn);animation:spin .6s linear infinite}
 </style>
 </head>
 <body>
 <div id="app"></div>
-
-<!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-
 <script>
+/*
+ ╔══════════════════════════════════════════════╗
+ ║  ATP CBT Study App - Scalable Architecture   ║
+ ║                                              ║
+ ║  Firestore Structure:                        ║
+ ║  /app/members        → {list: [...]}         ║
+ ║  /quizzes/{id}       → {title, count}        ║
+ ║  /quizzes/{id}/chunks/0 → {questions:[...]}  ║
+ ║  /users/{name}       → {history, sessions}   ║
+ ║                                              ║
+ ║  Quizzes are SHARED (1 copy for everyone).   ║
+ ║  Only history & sessions are per-user.       ║
+ ╚══════════════════════════════════════════════╝
+*/
+
 // ═══════════════════
-// FIREBASE INIT
+// FIREBASE
 // ═══════════════════
-const firebaseConfig = {
+firebase.initializeApp({
   apiKey: "AIzaSyARciB7XP6ubjHdQkwBEKXI0-wsvbUeY-s",
   authDomain: "study-11efd.firebaseapp.com",
   projectId: "study-11efd",
   storageBucket: "study-11efd.firebasestorage.app",
   messagingSenderId: "967371236328",
-  appId: "1:967371236328:web:d8ea1c12335b35928bfa5d",
-  measurementId: "G-6HZHKC1B84"
-};
-firebase.initializeApp(firebaseConfig);
+  appId: "1:967371236328:web:d8ea1c12335b35928bfa5d"
+});
 const db = firebase.firestore();
-
 const ADMIN_KEY = "rpj7646";
+const CHUNK = 200; // questions per chunk
 
 // ═══════════════════
-// FIRESTORE DB LAYER
-// ═══════════════════
-const FDB = {
-  async getDoc(collection, docId) {
-    try {
-      const snap = await db.collection(collection).doc(docId).get();
-      return snap.exists ? snap.data() : null;
-    } catch (e) { console.error('FDB get error:', e); return null; }
-  },
-  async setDoc(collection, docId, data) {
-    try {
-      await db.collection(collection).doc(docId).set(data, { merge: true });
-      return true;
-    } catch (e) { console.error('FDB set error:', e); return false; }
-  },
-  async deleteDoc(collection, docId) {
-    try { await db.collection(collection).doc(docId).delete(); return true; }
-    catch (e) { console.error('FDB del error:', e); return false; }
-  },
-  async getAllDocs(collection) {
-    try {
-      const snap = await db.collection(collection).get();
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (e) { console.error('FDB getAll error:', e); return []; }
-  }
-};
-
-// ═══════════════════
-// LOCAL CACHE + CLOUD SYNC
+// LOCAL CACHE
 // ═══════════════════
 const LC = {
-  get(k) { try { return JSON.parse(localStorage.getItem('qf_' + k)) } catch { return null } },
-  set(k, v) { try { localStorage.setItem('qf_' + k, JSON.stringify(v)) } catch {} },
-  del(k) { try { localStorage.removeItem('qf_' + k) } catch {} }
+  get(k) { try { return JSON.parse(localStorage.getItem('qf2_' + k)) } catch { return null } },
+  set(k, v) { try { localStorage.setItem('qf2_' + k, JSON.stringify(v)) } catch {} },
+  del(k) { try { localStorage.removeItem('qf2_' + k) } catch {} }
 };
 
 let currentUser = LC.get('currentUser') || null;
-let syncStatus = 'ok'; // ok, syncing, error
 
-function uKey(k) { return 'u_' + currentUser + '_' + k; }
+// ═══════════════════
+// DATA LAYER
+// ═══════════════════
 
-// Members
-async function getMembers() {
+// --- Members ---
+async function loadMembers() {
   try {
-    const cloud = await FDB.getDoc('app', 'members');
-    if (cloud && cloud.list) { LC.set('members', cloud.list); return cloud.list; }
-  } catch(e) { console.error('getMembers cloud error:', e); }
+    const snap = await db.collection('app').doc('members').get();
+    if (snap.exists && snap.data().list) { LC.set('members', snap.data().list); return snap.data().list; }
+  } catch(e) { console.warn('loadMembers:', e); }
   return LC.get('members') || [];
 }
-async function setMembers(m) {
+async function saveMembers(m) {
   LC.set('members', m);
-  try { await FDB.setDoc('app', 'members', { list: m }); } catch(e) { console.error('setMembers error:', e); }
+  try { await db.collection('app').doc('members').set({ list: m }); } catch(e) { console.warn('saveMembers:', e); }
 }
-function getMembersLocal() { return LC.get('members') || []; }
+function membersLocal() { return LC.get('members') || []; }
 
-// User data
-async function getUserQuizzes() {
-  if (!currentUser) return [];
+// --- Quizzes (shared, chunked) ---
+async function loadQuizList() {
   try {
-    const cloud = await FDB.getDoc('users', currentUser + '_quizzes');
-    if (cloud && cloud.data) { LC.set(uKey('quizzes'), cloud.data); return cloud.data; }
-  } catch(e) { console.error('getUserQuizzes cloud error:', e); }
-  let q = LC.get(uKey('quizzes'));
-  if (!q || !q.length) { q = []; LC.set(uKey('quizzes'), q); }
-  return q;
+    const snap = await db.collection('quizzes').orderBy('order').get();
+    const list = snap.docs.map(d => ({ id: d.id, title: d.data().title, count: d.data().count || 0, order: d.data().order || 0 }));
+    LC.set('quizList', list);
+    return list;
+  } catch(e) { console.warn('loadQuizList:', e); }
+  return LC.get('quizList') || [];
 }
-async function setUserQuizzes(q) {
-  LC.set(uKey('quizzes'), q);
-  try { await FDB.setDoc('users', currentUser + '_quizzes', { data: q }); } catch(e) { console.error('setUserQuizzes error:', e); }
-}
-function getUserQuizzesLocal() { return LC.get(uKey('quizzes')) || []; }
+function quizListLocal() { return LC.get('quizList') || []; }
 
-async function getUserHistory() {
-  if (!currentUser) return [];
+async function loadQuizQuestions(quizId) {
+  // Check cache first
+  const cached = LC.get('quiz_' + quizId);
+  if (cached) return cached;
   try {
-    const cloud = await FDB.getDoc('users', currentUser + '_history');
-    if (cloud && cloud.data) { LC.set(uKey('history'), cloud.data); return cloud.data; }
-  } catch(e) { console.error('getUserHistory cloud error:', e); }
-  return LC.get(uKey('history')) || [];
-}
-async function setUserHistory(h) {
-  LC.set(uKey('history'), h);
-  try { await FDB.setDoc('users', currentUser + '_history', { data: h }); } catch(e) { console.error('setUserHistory error:', e); }
+    const snap = await db.collection('quizzes').doc(quizId).collection('chunks').orderBy(firebase.firestore.FieldPath.documentId()).get();
+    let questions = [];
+    snap.docs.forEach(d => { if (d.data().questions) questions = questions.concat(d.data().questions); });
+    LC.set('quiz_' + quizId, questions);
+    return questions;
+  } catch(e) { console.warn('loadQuizQuestions:', e); }
+  return LC.get('quiz_' + quizId) || [];
 }
 
-async function getUserSessions() {
-  if (!currentUser) return {};
+async function saveQuiz(title, questions) {
+  const id = 'q_' + Date.now();
+  const list = quizListLocal();
+  const order = list.length;
   try {
-    const cloud = await FDB.getDoc('users', currentUser + '_sessions');
-    if (cloud && cloud.data) { LC.set(uKey('sessions'), cloud.data); return cloud.data; }
-  } catch(e) { console.error('getUserSessions cloud error:', e); }
-  return LC.get(uKey('sessions')) || {};
+    await db.collection('quizzes').doc(id).set({ title, count: questions.length, order });
+    // Save in chunks
+    for (let i = 0; i < questions.length; i += CHUNK) {
+      const chunk = questions.slice(i, i + CHUNK);
+      await db.collection('quizzes').doc(id).collection('chunks').doc(String(Math.floor(i / CHUNK))).set({ questions: chunk });
+    }
+    LC.set('quiz_' + id, questions);
+    list.push({ id, title, count: questions.length, order });
+    LC.set('quizList', list);
+    return true;
+  } catch(e) { console.error('saveQuiz:', e); return false; }
 }
-async function setUserSessions(s) {
-  LC.set(uKey('sessions'), s);
-  try { await FDB.setDoc('users', currentUser + '_sessions', { data: s }); } catch(e) { console.error('setUserSessions error:', e); }
+
+async function deleteQuiz(quizId) {
+  try {
+    // Delete chunks
+    const chunks = await db.collection('quizzes').doc(quizId).collection('chunks').get();
+    const batch = db.batch();
+    chunks.docs.forEach(d => batch.delete(d.ref));
+    batch.delete(db.collection('quizzes').doc(quizId));
+    await batch.commit();
+    LC.del('quiz_' + quizId);
+    const list = quizListLocal().filter(q => q.id !== quizId);
+    LC.set('quizList', list);
+    return true;
+  } catch(e) { console.error('deleteQuiz:', e); return false; }
+}
+
+// --- User Data (lightweight: history + sessions only) ---
+async function loadUserData() {
+  if (!currentUser) return;
+  try {
+    const snap = await db.collection('users').doc(currentUser).get();
+    if (snap.exists) {
+      const d = snap.data();
+      if (d.history) LC.set('u_' + currentUser + '_history', d.history);
+      if (d.sessions) LC.set('u_' + currentUser + '_sessions', d.sessions);
+    }
+  } catch(e) { console.warn('loadUserData:', e); }
+}
+function userHistory() { return LC.get('u_' + currentUser + '_history') || []; }
+function userSessions() { return LC.get('u_' + currentUser + '_sessions') || {}; }
+
+async function saveUserHistory(h) {
+  LC.set('u_' + currentUser + '_history', h);
+  try { await db.collection('users').doc(currentUser).set({ history: h }, { merge: true }); } catch(e) { console.warn('saveHistory:', e); }
+}
+async function saveUserSessions(s) {
+  LC.set('u_' + currentUser + '_sessions', s);
+  try { await db.collection('users').doc(currentUser).set({ sessions: s }, { merge: true }); } catch(e) { console.warn('saveSessions:', e); }
 }
 
 // ═══════════════════
 // STATE
 // ═══════════════════
-let S = { screen: 'loading', quiz: null, quizIdx: -1, cur: 0, answers: {}, marks: new Set(), checked: new Set(), timer: 0, timerOn: false, timerRef: null, mode: 'normal', homeTab: 'list', adminTab: 'members' };
+let S = { screen: 'loading', quiz: null, quizId: null, cur: 0, answers: {}, marks: new Set(), checked: new Set(), timer: 0, timerOn: false, timerRef: null, mode: 'normal', homeTab: 'list', shuffleOrder: null };
 
 function startTimer() { S.timerOn = true; S.timerRef = setInterval(() => { S.timer++; const e = document.querySelector('#tmr'); if (e) e.textContent = fmt(S.timer) }, 1000) }
 function stopTimer() { S.timerOn = false; clearInterval(S.timerRef) }
 function fmt(s) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` }
+function shuffle(arr) { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]] } return a }
 
 async function saveSession() {
   if (!S.quiz) return;
-  const ss = LC.get(uKey('sessions')) || {};
-  ss[S.quizIdx] = { cur: S.cur, answers: { ...S.answers }, marks: [...S.marks], checked: [...S.checked], timer: S.timer, date: Date.now(), shuffleOrder: S.shuffleOrder || [] };
-  LC.set(uKey('sessions'), ss);
-  try { await FDB.setDoc('users', currentUser + '_sessions', { data: ss }); } catch(e) { console.error('Session save error:', e); }
+  const ss = userSessions();
+  ss[S.quizId] = { cur: S.cur, answers: { ...S.answers }, marks: [...S.marks], checked: [...S.checked], timer: S.timer, shuffleOrder: S.shuffleOrder, date: Date.now() };
+  LC.set('u_' + currentUser + '_sessions', ss);
+  try { await db.collection('users').doc(currentUser).set({ sessions: ss }, { merge: true }); } catch(e) {}
 }
-function loadSessionLocal(i) { return (LC.get(uKey('sessions')) || {})[i] || null; }
-async function clearSession(i) {
-  const ss = LC.get(uKey('sessions')) || {};
-  delete ss[i];
-  LC.set(uKey('sessions'), ss);
-  await FDB.setDoc('users', currentUser + '_sessions', { data: ss });
+function loadSession(qid) { return userSessions()[qid] || null; }
+async function clearSession(qid) {
+  const ss = userSessions(); delete ss[qid];
+  LC.set('u_' + currentUser + '_sessions', ss);
+  try { await db.collection('users').doc(currentUser).set({ sessions: ss }, { merge: true }); } catch(e) {}
 }
 
-setInterval(() => { if (S.screen === 'quiz') saveSession() }, 10000);
+setInterval(() => { if (S.screen === 'quiz') saveSession() }, 15000);
 document.addEventListener('visibilitychange', () => { if (document.hidden && S.screen === 'quiz') saveSession() });
 
 const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
 
 function R() {
   const a = $('#app');
-  if (!currentUser && S.screen !== 'admin' && S.screen !== 'loading') { S.screen = 'auth'; }
+  if (!currentUser && S.screen !== 'admin' && S.screen !== 'loading') S.screen = 'auth';
   switch (S.screen) {
     case 'loading': a.innerHTML = loadingHTML(); break;
     case 'auth': a.innerHTML = authHTML(); bindAuth(); break;
     case 'admin': a.innerHTML = adminHTML(); bindAdmin(); break;
     case 'home': a.innerHTML = homeHTML(); bindHome(); break;
     case 'quiz': a.innerHTML = quizHTML(); bindQuiz(); break;
-    case 'review': a.innerHTML = reviewHTML(); bindReview(); break;
   }
 }
 
@@ -205,535 +225,346 @@ function loadingHTML() {
     <div style="display:inline-flex;align-items:center;gap:10px;background:var(--prim);padding:10px 22px;border-radius:50px">
       <div style="width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--pri),var(--acc));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;color:#fff">Q</div>
       <span style="font-weight:900;font-size:19px">ATP CBT</span></div>
-    <div><span class="loader"></span> <span style="color:var(--t2);font-size:13px;margin-left:8px">클라우드 동기화 중...</span></div>
-  </div>`;
+    <div><span class="loader"></span> <span style="color:var(--t2);font-size:13px;margin-left:8px">클라우드 동기화 중...</span></div></div>`;
 }
 
 // ═══════════════════
 // AUTH
 // ═══════════════════
 function authHTML() {
-  const members = getMembersLocal();
-  const memberList = members.length ? members.map(m =>
-    `<button class="member-btn fu" data-name="${m.name}" style="animation-delay:${members.indexOf(m) * .04}s;display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);text-align:left;transition:all .15s">
+  const members = membersLocal();
+  const ml = members.length ? members.map((m, i) =>
+    `<button class="member-btn fu" data-name="${m.name}" style="animation-delay:${i * .04}s;display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);text-align:left;transition:all .15s">
       <div style="width:40px;height:40px;border-radius:50%;background:var(--prim);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:var(--pri)">${m.name[0].toUpperCase()}</div>
       <div style="flex:1"><div style="font-weight:700;font-size:15px">${m.name}</div>
-      ${m.pw ? '<div style="color:var(--t3);font-size:11px">비밀번호 설정됨</div>' : '<div style="color:var(--warn);font-size:11px">첫 로그인 — 비번 설정 필요</div>'}</div>
+      ${m.pw ? '<div style="color:var(--t3);font-size:11px">비밀번호 설정됨</div>' : '<div style="color:var(--warn);font-size:11px">첫 로그인 — 비번 설정</div>'}</div>
       <span style="color:var(--t3);font-size:16px">›</span></button>`
   ).join('') : '<div style="text-align:center;padding:40px;color:var(--t3);font-size:14px;line-height:1.7">등록된 멤버가 없습니다<br><span style="font-size:12px">관리자에게 문의하세요</span></div>';
-
-  return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px">
-    <div style="width:100%;max-width:440px">
-      <div class="si" style="text-align:center;margin-bottom:32px">
-        <div style="display:inline-flex;align-items:center;gap:10px;background:var(--prim);padding:10px 22px;border-radius:50px;margin-bottom:18px">
-          <div style="width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--pri),var(--acc));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;color:#fff">Q</div>
-          <span style="font-weight:900;font-size:19px">ATP CBT</span></div>
-        <h1 style="font-size:24px;font-weight:900;margin-bottom:6px">로그인</h1>
-        <p style="color:var(--t2);font-size:13px">본인 이름을 선택하세요 <span style="color:var(--ok);font-size:11px">☁️ 클라우드 연동</span></p>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">${memberList}</div>
-      <div id="pw-modal" style="display:none;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:16px">
-        <div id="pw-title" style="font-weight:800;font-size:15px;margin-bottom:12px"></div>
-        <input id="pw-input" class="inp" type="password" placeholder="비밀번호">
-        <div id="pw-set" style="display:none;margin-top:8px"><input id="pw-confirm" class="inp" type="password" placeholder="비밀번호 확인" style="margin-bottom:8px"></div>
-        <div id="pw-err" class="err"></div>
-        <div style="display:flex;gap:8px;margin-top:12px"><button id="pw-cancel" class="btn bgh" style="flex:1;font-size:13px">취소</button><button id="pw-btn" class="btn bp" style="flex:1;font-size:13px">확인</button></div>
-      </div>
-      <button id="btn-admin" class="btn bgh" style="width:100%;padding:12px;font-size:13px;margin-top:8px">🔧 관리자</button>
-    </div></div>`;
+  return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px"><div style="width:100%;max-width:440px">
+    <div class="si" style="text-align:center;margin-bottom:32px">
+      <div style="display:inline-flex;align-items:center;gap:10px;background:var(--prim);padding:10px 22px;border-radius:50px;margin-bottom:18px">
+        <div style="width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--pri),var(--acc));display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px;color:#fff">Q</div>
+        <span style="font-weight:900;font-size:19px">ATP CBT</span></div>
+      <h1 style="font-size:24px;font-weight:900;margin-bottom:6px">로그인</h1>
+      <p style="color:var(--t2);font-size:13px">본인 이름을 선택하세요 <span style="color:var(--ok);font-size:11px">☁️ 클라우드</span></p></div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">${ml}</div>
+    <div id="pw-modal" style="display:none;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:16px">
+      <div id="pw-title" style="font-weight:800;font-size:15px;margin-bottom:12px"></div>
+      <input id="pw-input" class="inp" type="password" placeholder="비밀번호">
+      <div id="pw-set" style="display:none;margin-top:8px"><input id="pw-confirm" class="inp" type="password" placeholder="비밀번호 확인"></div>
+      <div id="pw-err" class="err"></div>
+      <div style="display:flex;gap:8px;margin-top:12px"><button id="pw-cancel" class="btn bgh" style="flex:1;font-size:13px">취소</button><button id="pw-btn" class="btn bp" style="flex:1;font-size:13px">확인</button></div></div>
+    <button id="btn-admin" class="btn bgh" style="width:100%;padding:12px;font-size:13px;margin-top:8px">🔧 관리자</button>
+  </div></div>`;
 }
-
 function bindAuth() {
-  let selectedMember = null;
-  $$('.member-btn').forEach(b => {
-    b.onclick = () => {
-      selectedMember = getMembersLocal().find(m => m.name === b.dataset.name);
-      if (!selectedMember) return;
-      const modal = $('#pw-modal'), title = $('#pw-title'), err = $('#pw-err'), setDiv = $('#pw-set');
-      err.style.display = 'none';
-      if (!selectedMember.pw) {
-        title.textContent = `${selectedMember.name}님 — 비밀번호 설정`;
-        setDiv.style.display = 'block';
-      } else {
-        title.textContent = `${selectedMember.name}님 — 로그인`;
-        setDiv.style.display = 'none';
-      }
-      modal.style.display = 'block';
-      $('#pw-input').value = '';
-      const pc = $('#pw-confirm'); if (pc) pc.value = '';
-      setTimeout(() => $('#pw-input').focus(), 100);
-    };
-  });
-
+  let sel = null;
+  $$('.member-btn').forEach(b => { b.onclick = () => {
+    sel = membersLocal().find(m => m.name === b.dataset.name); if (!sel) return;
+    const md = $('#pw-modal'); $('#pw-err').style.display = 'none';
+    if (!sel.pw) { $('#pw-title').textContent = sel.name + '님 — 비밀번호 설정'; $('#pw-set').style.display = 'block'; }
+    else { $('#pw-title').textContent = sel.name + '님 — 로그인'; $('#pw-set').style.display = 'none'; }
+    md.style.display = 'block'; $('#pw-input').value = ''; const pc = $('#pw-confirm'); if (pc) pc.value = '';
+    setTimeout(() => $('#pw-input').focus(), 100);
+  }});
   $('#pw-btn').onclick = async () => {
-    const err = $('#pw-err');
-    if (!selectedMember) return;
-    if (!selectedMember.pw) {
+    const err = $('#pw-err'); if (!sel) return;
+    if (!sel.pw) {
       const pw = $('#pw-input').value, pw2 = $('#pw-confirm').value;
-      if (!pw || pw.length < 2) { err.textContent = '2자 이상 입력하세요'; err.style.display = 'block'; return; }
-      if (pw !== pw2) { err.textContent = '비밀번호가 일치하지 않습니다'; err.style.display = 'block'; return; }
-      const members = getMembersLocal();
-      const m = members.find(x => x.name === selectedMember.name);
-      if (m) m.pw = pw;
-      await setMembers(members);
-      currentUser = selectedMember.name;
-      LC.set('currentUser', currentUser);
-      S.screen = 'home'; R();
+      if (!pw || pw.length < 2) { err.textContent = '2자 이상 입력'; err.style.display = 'block'; return; }
+      if (pw !== pw2) { err.textContent = '비밀번호 불일치'; err.style.display = 'block'; return; }
+      const ms = membersLocal(); const m = ms.find(x => x.name === sel.name); if (m) m.pw = pw;
+      await saveMembers(ms); currentUser = sel.name; LC.set('currentUser', currentUser);
+      await loadUserData(); S.screen = 'home'; R();
     } else {
-      if ($('#pw-input').value === selectedMember.pw) {
-        currentUser = selectedMember.name;
-        LC.set('currentUser', currentUser);
-        S.screen = 'home'; R();
-      } else {
-        err.textContent = '비밀번호가 틀렸습니다'; err.style.display = 'block';
-      }
+      if ($('#pw-input').value === sel.pw) { currentUser = sel.name; LC.set('currentUser', currentUser); await loadUserData(); S.screen = 'home'; R(); }
+      else { err.textContent = '비밀번호 오류'; err.style.display = 'block'; }
     }
   };
-
-  $('#pw-input').onkeydown = (e) => { if (e.key === 'Enter') { if (selectedMember && selectedMember.pw) $('#pw-btn').click(); else $('#pw-confirm').focus(); } };
-  const pc = $('#pw-confirm'); if (pc) pc.onkeydown = (e) => { if (e.key === 'Enter') $('#pw-btn').click(); };
-  $('#pw-cancel').onclick = () => { $('#pw-modal').style.display = 'none'; selectedMember = null; };
-
-  $('#btn-admin').onclick = () => {
-    const pw = prompt('관리자 비밀번호를 입력하세요');
-    if (pw === ADMIN_KEY) { S.screen = 'admin'; R(); }
-    else if (pw !== null) alert('비밀번호가 틀렸습니다');
-  };
+  $('#pw-input').onkeydown = e => { if (e.key === 'Enter') { if (sel && sel.pw) $('#pw-btn').click(); else $('#pw-confirm').focus(); } };
+  const pc = $('#pw-confirm'); if (pc) pc.onkeydown = e => { if (e.key === 'Enter') $('#pw-btn').click(); };
+  $('#pw-cancel').onclick = () => { $('#pw-modal').style.display = 'none'; sel = null; };
+  $('#btn-admin').onclick = () => { const pw = prompt('관리자 비밀번호'); if (pw === ADMIN_KEY) { S.screen = 'admin'; R(); } else if (pw !== null) alert('비밀번호 오류'); };
 }
 
 // ═══════════════════
 // ADMIN
 // ═══════════════════
 function adminHTML() {
-  const members = getMembersLocal();
+  const members = membersLocal(), quizzes = quizListLocal();
   const mHTML = members.length ? members.map((m, i) =>
-    `<div class="fu" style="animation-delay:${i * .03}s;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:12px">
+    `<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:12px">
       <div style="width:36px;height:36px;border-radius:50%;background:var(--prim);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--pri)">${m.name[0].toUpperCase()}</div>
-      <div style="flex:1"><div style="font-weight:700;font-size:14px">${m.name}</div>
-      <div style="color:var(--t3);font-size:11px">${m.pw ? '비번 설정됨' : '미설정'}</div></div>
+      <div style="flex:1"><div style="font-weight:700;font-size:14px">${m.name}</div><div style="color:var(--t3);font-size:11px">${m.pw?'비번 설정됨':'미설정'}</div></div>
       <button class="reset-pw" data-idx="${i}" style="padding:6px 10px;border-radius:7px;background:var(--warnm);color:var(--warn);font-size:11px;font-weight:600">비번초기화</button>
-      <button class="del-m" data-idx="${i}" style="padding:6px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600">삭제</button>
-    </div>`
+      <button class="del-m" data-idx="${i}" style="padding:6px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600">삭제</button></div>`
   ).join('') : '<div style="text-align:center;padding:30px;color:var(--t3)">멤버 없음</div>';
-
-  // Collect all quiz titles from all members
-  const allQuizTitles = new Set();
-  members.forEach(m => {
-    const qs = LC.get('u_' + m.name + '_quizzes') || [];
-    qs.forEach(q => allQuizTitles.add(q.title));
-  });
-  const quizDelHTML = [...allQuizTitles].length ? [...allQuizTitles].map((t, i) =>
-    `<div class="fu" style="animation-delay:${i * .03}s;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--raised);border:1px solid var(--bd);border-radius:10px;margin-bottom:6px">
-      <div style="flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t}</div>
-      <button class="del-quiz-all" data-title="${t.replace(/"/g, '&quot;')}" style="padding:5px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600;white-space:nowrap">삭제</button></div>`
+  const qHTML = quizzes.length ? quizzes.map((q, i) =>
+    `<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--raised);border:1px solid var(--bd);border-radius:10px;margin-bottom:6px">
+      <div style="flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${q.title} <span style="color:var(--t3);font-size:11px">(${q.count}문제)</span></div>
+      <button class="del-quiz" data-id="${q.id}" style="padding:5px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600">삭제</button></div>`
   ).join('') : '<div style="text-align:center;padding:20px;color:var(--t3);font-size:12px">문제집 없음</div>';
 
-  return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px">
-    <div style="width:100%;max-width:500px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-        <h2 style="font-size:20px;font-weight:900">🔧 관리자 패널 <span style="color:var(--ok);font-size:11px">☁️</span></h2>
-        <button id="adm-back" class="btn bgh" style="padding:8px 14px;font-size:12px">← 돌아가기</button>
-      </div>
-
-      <div style="margin-bottom:20px">
-        <div style="font-weight:700;font-size:14px;margin-bottom:10px">👥 멤버 관리 (${members.length}명)</div>
-        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">${mHTML}</div>
-        <div style="display:flex;gap:8px">
-          <input id="new-name" class="inp" placeholder="새 멤버 이름" style="flex:1">
-          <button id="add-member" class="btn bp" style="padding:10px 18px;font-size:13px;white-space:nowrap">+ 추가</button>
-        </div>
-      </div>
-
-      <div style="background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:12px">
-        <div style="font-weight:700;font-size:14px;margin-bottom:8px">📋 문제집 추가 (JSON)</div>
-        <textarea id="adm-json" placeholder="JSON 붙여넣기로 문제집 추가..." style="width:100%;min-height:100px;padding:12px;border-radius:10px;border:1.5px solid var(--bd);background:var(--raised);color:var(--t);font-size:12px;resize:vertical;outline:none;margin-bottom:8px"></textarea>
-        <div id="adm-jerr" class="err"></div>
-        <button id="adm-add-quiz" class="btn bp" style="width:100%;padding:10px;font-size:13px">전체 멤버에게 문제집 추가</button>
-      </div>
-
-      <div style="background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:12px">
-        <div style="font-weight:700;font-size:14px;margin-bottom:8px">🗑 문제집 삭제 (전체 멤버)</div>
-        <div style="color:var(--t2);font-size:11px;margin-bottom:10px">선택한 문제집을 모든 멤버에게서 삭제합니다</div>
-        ${quizDelHTML}
-      </div>
-    </div>
-  </div>`;
+  return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px"><div style="width:100%;max-width:500px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="font-size:20px;font-weight:900">🔧 관리자 ☁️</h2>
+      <button id="adm-back" class="btn bgh" style="padding:8px 14px;font-size:12px">← 돌아가기</button></div>
+    <div style="margin-bottom:20px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:10px">👥 멤버 (${members.length}명)</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">${mHTML}</div>
+      <div style="display:flex;gap:8px"><input id="new-name" class="inp" placeholder="새 멤버 이름" style="flex:1">
+        <button id="add-member" class="btn bp" style="padding:10px 18px;font-size:13px;white-space:nowrap">+ 추가</button></div></div>
+    <div style="background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px">📋 문제집 추가 (JSON)</div>
+      <textarea id="adm-json" placeholder="JSON 붙여넣기..." style="width:100%;min-height:100px;padding:12px;border-radius:10px;border:1.5px solid var(--bd);background:var(--raised);color:var(--t);font-size:12px;resize:vertical;outline:none;margin-bottom:8px"></textarea>
+      <div id="adm-jerr" class="err"></div>
+      <button id="adm-add-quiz" class="btn bp" style="width:100%;padding:10px;font-size:13px">☁️ 문제집 업로드</button></div>
+    <div style="background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px">🗑 문제집 삭제</div>
+      <div style="color:var(--t2);font-size:11px;margin-bottom:10px">모든 멤버 공용 — 삭제하면 전체 적용</div>
+      ${qHTML}</div>
+  </div></div>`;
 }
-
 function bindAdmin() {
   $('#adm-back').onclick = () => { S.screen = 'auth'; currentUser = null; LC.del('currentUser'); R(); };
-
   $('#add-member').onclick = async () => {
-    const name = $('#new-name').value.trim();
-    if (!name) return;
-    const members = getMembersLocal();
-    if (members.find(m => m.name === name)) { alert('이미 존재하는 이름입니다'); return; }
-    members.push({ name, pw: null });
-    await setMembers(members);
-    R();
+    const name = $('#new-name').value.trim(); if (!name) return;
+    const ms = membersLocal(); if (ms.find(m => m.name === name)) { alert('이미 존재'); return; }
+    ms.push({ name, pw: null }); await saveMembers(ms); R();
   };
-  $('#new-name').onkeydown = (e) => { if (e.key === 'Enter') $('#add-member').click(); };
-
-  $$('.del-m').forEach(b => {
-    b.onclick = async () => {
-      const members = getMembersLocal();
-      const idx = +b.dataset.idx;
-      if (!confirm(`${members[idx].name}님을 삭제할까요?`)) return;
-      members.splice(idx, 1);
-      await setMembers(members);
-      R();
-    };
-  });
-
-  $$('.reset-pw').forEach(b => {
-    b.onclick = async () => {
-      const members = getMembersLocal();
-      const idx = +b.dataset.idx;
-      members[idx].pw = null;
-      await setMembers(members);
-      alert(`${members[idx].name}님 비밀번호가 초기화되었습니다`);
-      R();
-    };
-  });
-
+  $('#new-name').onkeydown = e => { if (e.key === 'Enter') $('#add-member').click(); };
+  $$('.del-m').forEach(b => { b.onclick = async () => {
+    const ms = membersLocal(), idx = +b.dataset.idx;
+    if (!confirm(ms[idx].name + '님 삭제?')) return;
+    ms.splice(idx, 1); await saveMembers(ms); R();
+  }});
+  $$('.reset-pw').forEach(b => { b.onclick = async () => {
+    const ms = membersLocal(), idx = +b.dataset.idx;
+    ms[idx].pw = null; await saveMembers(ms);
+    alert(ms[idx].name + '님 비번 초기화 완료'); R();
+  }});
   $('#adm-add-quiz').onclick = async () => {
+    const jerr = $('#adm-jerr');
     try {
       const p = JSON.parse($('#adm-json').value.trim());
       if (!p.questions?.length) throw new Error('questions 없음');
-      const quiz = { title: p.title || '새 문제집', questions: p.questions };
-      const members = getMembersLocal();
-      for (const m of members) {
-        const prev = currentUser;
-        currentUser = m.name;
-        const qs = getUserQuizzesLocal();
-        qs.unshift(quiz);
-        await setUserQuizzes(qs);
-        currentUser = prev;
-      }
-      alert(`${members.length}명 멤버에게 문제집 추가 완료! ☁️`);
-      $('#adm-json').value = '';
-      R();
-    } catch (e) {
-      $('#adm-jerr').style.display = 'block';
-      $('#adm-jerr').textContent = '❌ ' + e.message;
-    }
+      jerr.style.display = 'none';
+      const btn = $('#adm-add-quiz'); btn.disabled = true; btn.textContent = '업로드 중...';
+      const ok = await saveQuiz(p.title || '새 문제집', p.questions);
+      if (ok) { alert('문제집 업로드 완료! ☁️ (' + p.questions.length + '문제)'); $('#adm-json').value = ''; }
+      else alert('업로드 실패');
+      btn.disabled = false; btn.textContent = '☁️ 문제집 업로드'; R();
+    } catch(e) { jerr.style.display = 'block'; jerr.textContent = '❌ ' + e.message; }
   };
-
-  // Quiz delete for all members
-  $$('.del-quiz-all').forEach(b => {
-    b.onclick = async () => {
-      const title = b.dataset.title;
-      if (!confirm(`"${title}" 문제집을 전체 멤버에게서 삭제할까요?`)) return;
-      const members = getMembersLocal();
-      let count = 0;
-      for (const m of members) {
-        const prev = currentUser;
-        currentUser = m.name;
-        const qs = getUserQuizzesLocal();
-        const filtered = qs.filter(q => q.title !== title);
-        if (filtered.length < qs.length) count++;
-        await setUserQuizzes(filtered);
-        // Clean up sessions
-        const ss = LC.get(uKey('sessions')) || {};
-        const newSs = {};
-        filtered.forEach((q, idx) => {
-          const oldIdx = qs.findIndex(oq => oq.title === q.title);
-          if (oldIdx !== -1 && ss[oldIdx]) newSs[idx] = ss[oldIdx];
-        });
-        await setUserSessions(newSs);
-        currentUser = prev;
-      }
-      alert(`${count}명의 멤버에게서 "${title}" 삭제 완료! ☁️`);
-      R();
-    };
-  });
+  $$('.del-quiz').forEach(b => { b.onclick = async () => {
+    const qid = b.dataset.id, ql = quizListLocal(), q = ql.find(x => x.id === qid);
+    if (!confirm('"' + (q ? q.title : qid) + '" 삭제?')) return;
+    b.textContent = '삭제중...'; b.disabled = true;
+    await deleteQuiz(qid);
+    alert('삭제 완료! ☁️'); R();
+  }});
 }
 
 // ═══════════════════
 // HOME
 // ═══════════════════
 function homeHTML() {
-  const quizzes = getUserQuizzesLocal(), history = LC.get(uKey('history')) || [], sessions = LC.get(uKey('sessions')) || {};
+  const quizzes = quizListLocal(), history = userHistory(), sessions = userSessions();
   const listHTML = quizzes.length ? quizzes.map((q, i) => {
-    const sess = sessions[i]; const prog = sess ? Math.round(Object.keys(sess.answers).length / q.questions.length * 100) : 0;
-    const past = history.filter(h => h.quizTitle === q.title);
+    const sess = sessions[q.id];
+    const prog = sess ? Math.round(sess.checked.length / q.count * 100) : 0;
+    const past = history.filter(h => h.quizId === q.id || h.quizTitle === q.title);
     const best = past.length ? Math.max(...past.map(h => Math.round(h.correct / h.total * 100))) : null;
-    return `<div class="fu" style="animation-delay:${i * .04}s;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden">
-      <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer" data-play="${i}">
+    return `<div class="fu" style="animation-delay:${i*.04}s;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden">
+      <div style="padding:14px 16px;display:flex;align-items:center;gap:12px">
         <div style="width:44px;height:44px;border-radius:11px;background:var(--prim);display:flex;align-items:center;justify-content:center;font-size:20px">✈️</div>
         <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${q.title}</div>
-        <div style="color:var(--t2);font-size:12px;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap"><span>${q.questions.length}문제</span>${best !== null ? `<span style="color:var(--ok)">최고${best}%</span>` : ''}${sess ? `<span style="color:var(--warn)">진행${prog}%</span>` : ''}</div></div></div>
+        <div style="color:var(--t2);font-size:12px;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap"><span>${q.count}문제</span>${best !== null ? `<span style="color:var(--ok)">최고${best}%</span>` : ''}${sess ? `<span style="color:var(--warn)">진행${prog}%</span>` : ''}</div></div></div>
       <div style="padding:0 12px 10px;display:flex;gap:6px;flex-wrap:wrap">
-        ${sess ? `<button class="btn bgh" data-resume="${i}" style="padding:7px 12px;font-size:11px;flex:1">▶ 이어서</button>` : ''}
-        <button class="btn bgh" data-start="${i}" style="padding:7px 12px;font-size:11px;flex:1">${sess ? '↺ 처음부터' : '▶ 시작'}</button>
-        <button class="btn bgh" data-wrong="${i}" style="padding:7px 12px;font-size:11px;color:var(--bad)">오답복습</button>
-        <button class="btn bgh" data-delq="${i}" style="padding:7px 12px;font-size:11px;color:var(--t3)">🗑</button>
+        ${sess ? `<button class="btn bgh" data-resume="${q.id}" style="padding:7px 12px;font-size:11px;flex:1">▶ 이어서</button>` : ''}
+        <button class="btn bgh" data-start="${q.id}" style="padding:7px 12px;font-size:11px;flex:1">${sess ? '↺ 처음부터' : '▶ 시작'}</button>
+        <button class="btn bgh" data-wrong="${q.id}" style="padding:7px 12px;font-size:11px;color:var(--bad)">오답복습</button>
       </div></div>`;
   }).join('') : '<div style="text-align:center;padding:40px;color:var(--t3)">문제집 없음</div>';
 
   const histHTML = history.length ? history.slice(0, 30).map((h, i) => {
-    const d = new Date(h.date); const ds = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const d = new Date(h.date); const ds = `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
     const pct = Math.round(h.correct / h.total * 100); let gc = 'var(--ok)'; if (pct < 60) gc = 'var(--bad)'; else if (pct < 80) gc = 'var(--warn)';
-    return `<div class="fu" style="animation-delay:${i * .03}s;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:12px">
+    return `<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:12px">
       <div style="width:40px;height:40px;border-radius:50%;border:3px solid ${gc};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;color:${gc}">${pct}%</div>
       <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.quizTitle}</div>
-      <div style="color:var(--t2);font-size:11px;margin-top:2px">${h.correct}/${h.total} · ${fmt(h.time)} · ${ds}${h.mode === 'review-wrong' ? ' · <span style=color:var(--warn)>오답복습</span>' : ''}</div></div></div>`;
+      <div style="color:var(--t2);font-size:11px;margin-top:2px">${h.correct}/${h.total} · ${fmt(h.time)} · ${ds}${h.mode === 'wrong' ? ' · <span style=color:var(--warn)>오답복습</span>' : ''}</div></div></div>`;
   }).join('') : '<div style="text-align:center;padding:40px;color:var(--t3)">기록 없음</div>';
 
   return `<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px"><div style="width:100%;max-width:560px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <div><div style="font-size:13px;color:var(--t2)">환영합니다</div><div style="font-size:20px;font-weight:900">${currentUser}님 ✈️ <span style="color:var(--ok);font-size:11px">☁️</span></div></div>
-      <button id="logout" class="btn bgh" style="padding:8px 14px;font-size:12px">로그아웃</button>
-    </div>
-    <div class="tabs" style="margin-bottom:16px"><div class="tab ${S.homeTab === 'list' ? 'on' : ''}" data-ht="list">📚 문제집</div><div class="tab ${S.homeTab === 'history' ? 'on' : ''}" data-ht="history">📊 내 기록</div></div>
-    <div id="hl" style="display:${S.homeTab === 'list' ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-bottom:16px">${listHTML}</div>
-    <div id="hh" style="display:${S.homeTab === 'history' ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-bottom:16px">${histHTML}</div>
-    ${S.homeTab === 'history' && history.length ? '<button id="clrh" class="btn bgh" style="width:100%;padding:10px;font-size:12px;color:var(--bad);margin-bottom:10px">🗑 기록 삭제</button>' : ''}
+      <div><div style="font-size:13px;color:var(--t2)">환영합니다</div><div style="font-size:20px;font-weight:900">${currentUser}님 ✈️ ☁️</div></div>
+      <button id="logout" class="btn bgh" style="padding:8px 14px;font-size:12px">로그아웃</button></div>
+    <div class="tabs" style="margin-bottom:16px"><div class="tab ${S.homeTab==='list'?'on':''}" data-ht="list">📚 문제집</div><div class="tab ${S.homeTab==='history'?'on':''}" data-ht="history">📊 내 기록</div></div>
+    <div id="hl" style="display:${S.homeTab==='list'?'flex':'none'};flex-direction:column;gap:8px;margin-bottom:16px">${listHTML}</div>
+    <div id="hh" style="display:${S.homeTab==='history'?'flex':'none'};flex-direction:column;gap:8px;margin-bottom:16px">${histHTML}</div>
+    ${S.homeTab==='history'&&history.length?'<button id="clrh" class="btn bgh" style="width:100%;padding:10px;font-size:12px;color:var(--bad);margin-bottom:10px">🗑 기록 삭제</button>':''}
   </div></div>`;
 }
-
 function bindHome() {
   $$('[data-ht]').forEach(t => { t.onclick = () => { S.homeTab = t.dataset.ht; R() } });
   $('#logout').onclick = () => { currentUser = null; LC.del('currentUser'); resetS(); S.screen = 'auth'; R(); };
-  const ch = $('#clrh'); if (ch) ch.onclick = async () => { if (confirm('기록 삭제?')) { await setUserHistory([]); R() } };
-  $$('[data-play]').forEach(el => { el.onclick = () => startQuiz(+el.dataset.play, 'normal', false) });
-  $$('[data-start]').forEach(el => { el.onclick = e => { e.stopPropagation(); clearSession(+el.dataset.start); startQuiz(+el.dataset.start, 'normal', false) } });
-  $$('[data-resume]').forEach(el => { el.onclick = e => { e.stopPropagation(); startQuiz(+el.dataset.resume, 'normal', true) } });
-  $$('[data-wrong]').forEach(el => { el.onclick = e => { e.stopPropagation(); startWrongReview(+el.dataset.wrong) } });
-  $$('[data-delq]').forEach(el => { el.onclick = async e => {
-    e.stopPropagation();
-    const idx = +el.dataset.delq;
-    const qs = getUserQuizzesLocal();
-    if (!confirm(`"${qs[idx].title}" 문제집을 삭제할까요?`)) return;
-    qs.splice(idx, 1);
-    await setUserQuizzes(qs);
-    const ss = LC.get(uKey('sessions')) || {};
-    const newSs = {};
-    Object.keys(ss).forEach(k => {
-      const ki = +k;
-      if (ki < idx) newSs[ki] = ss[ki];
-      else if (ki > idx) newSs[ki - 1] = ss[ki];
-    });
-    await setUserSessions(newSs);
-    R();
-  }});
+  const ch = $('#clrh'); if (ch) ch.onclick = async () => { if (confirm('기록 삭제?')) { await saveUserHistory([]); R() } };
+  $$('[data-start]').forEach(el => { el.onclick = e => { e.stopPropagation(); startQuiz(el.dataset.start, false) } });
+  $$('[data-resume]').forEach(el => { el.onclick = e => { e.stopPropagation(); startQuiz(el.dataset.resume, true) } });
+  $$('[data-wrong]').forEach(el => { el.onclick = e => { e.stopPropagation(); startWrongReview(el.dataset.wrong) } });
 }
 
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
-  return a;
-}
+async function startQuiz(qid, resume) {
+  const ql = quizListLocal(), meta = ql.find(q => q.id === qid);
+  if (!meta) return;
+  // Show loading indicator
+  const questions = await loadQuizQuestions(qid);
+  if (!questions.length) { alert('문제를 불러올 수 없습니다'); return; }
 
-function startQuiz(idx, mode, resume) {
-  const q = getUserQuizzesLocal(); 
-  const original = q[idx];
-  S.quizIdx = idx; S.mode = mode;
+  S.quizId = qid; S.mode = 'normal';
   S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0;
-  
+
   if (resume) {
-    const ss = loadSessionLocal(idx);
-    if (ss) { 
-      S.cur = ss.cur; S.answers = ss.answers; S.marks = new Set(ss.marks); S.checked = new Set(ss.checked || []); S.timer = ss.timer;
-      // Restore shuffle order from saved indices
-      if (ss.shuffleOrder && ss.shuffleOrder.length) {
-        S.quiz = { ...original, questions: ss.shuffleOrder.map(i => original.questions[i]) };
-        S.shuffleOrder = ss.shuffleOrder;
-      } else {
-        S.quiz = { ...original };
-        S.shuffleOrder = original.questions.map((_, i) => i);
-      }
+    const ss = loadSession(qid);
+    if (ss) {
+      S.cur = ss.cur; S.answers = ss.answers || {}; S.marks = new Set(ss.marks || []); S.checked = new Set(ss.checked || []); S.timer = ss.timer || 0;
+      S.shuffleOrder = ss.shuffleOrder || questions.map((_, i) => i);
     } else {
-      S.quiz = { ...original };
-      S.shuffleOrder = original.questions.map((_, i) => i);
+      S.shuffleOrder = shuffle(questions.map((_, i) => i));
     }
   } else {
-    // 새로 시작: 셔플 인덱스 생성
-    const indices = original.questions.map((_, i) => i);
-    S.shuffleOrder = shuffle(indices);
-    S.quiz = { ...original, questions: S.shuffleOrder.map(i => original.questions[i]) };
+    await clearSession(qid);
+    S.shuffleOrder = shuffle(questions.map((_, i) => i));
   }
+  S.quiz = { title: meta.title, questions: S.shuffleOrder.map(i => questions[i]) };
   S.screen = 'quiz'; R(); startTimer();
 }
 
-function startWrongReview(idx) {
-  const q = getUserQuizzesLocal()[idx]; const h = LC.get(uKey('history')) || []; const wi = new Set();
-  h.filter(x => x.quizTitle === q.title).forEach(x => { if (x.wrongIndices) x.wrongIndices.forEach(i => wi.add(i)) });
-  if (!wi.size) { alert('틀린 문제가 없어요! 🎉'); return }
-  const wq = shuffle([...wi].map(i => ({ ...q.questions[i], origIdx: i })).filter(Boolean));
-  S.quiz = { title: q.title + ' (오답복습)', questions: wq }; S.quizIdx = idx; S.mode = 'review-wrong';
-  S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0; S.screen = 'quiz'; R(); startTimer();
+async function startWrongReview(qid) {
+  const ql = quizListLocal(), meta = ql.find(q => q.id === qid);
+  if (!meta) return;
+  const questions = await loadQuizQuestions(qid);
+  const h = userHistory();
+  const wi = new Set();
+  h.filter(x => x.quizId === qid || x.quizTitle === meta.title).forEach(x => { if (x.wrongIndices) x.wrongIndices.forEach(i => wi.add(i)) });
+  if (!wi.size) { alert('틀린 문제가 없어요! 🎉'); return; }
+  const wq = shuffle([...wi].map(i => ({ ...questions[i], origIdx: i })).filter(Boolean));
+  S.quizId = qid; S.mode = 'wrong';
+  S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0; S.shuffleOrder = null;
+  S.quiz = { title: meta.title + ' (오답복습)', questions: wq };
+  S.screen = 'quiz'; R(); startTimer();
 }
 
 // ═══════════════════
-// QUIZ (즉시 채점 모드)
+// QUIZ (즉시 채점)
 // ═══════════════════
 function quizHTML() {
   const q = S.quiz.questions[S.cur], total = S.quiz.questions.length;
-  const answered = Object.keys(S.answers).length, pct = (S.checked.size / total) * 100;
-  const isChecked = S.checked.has(S.cur);
+  const pct = (S.checked.size / total) * 100;
   const correct = [...S.checked].filter(i => S.answers[i] === S.quiz.questions[i].answer).length;
+  const isChecked = S.checked.has(S.cur);
 
   const optsHTML = q.options.map((opt, idx) => {
     const sel = S.answers[S.cur] === idx;
     let st = '', ibg = 'var(--raised)', ic = 'var(--t3)', icon = String.fromCharCode(9312 + idx);
     if (isChecked) {
-      if (idx === q.answer && q.answer !== -1) { st = 'border-color:var(--ok);background:var(--okm);color:var(--ok)'; ibg = 'var(--ok)'; ic = '#fff'; icon = '✓' }
-      else if (sel && idx !== q.answer) { st = 'border-color:var(--bad);background:var(--badm);color:var(--bad)'; ibg = 'var(--bad)'; ic = '#fff'; icon = '✗' }
-    } else if (sel) {
-      st = 'border-color:var(--pri);background:var(--prim);color:var(--pri)'; ibg = 'var(--pri)'; ic = '#fff';
-    }
-    return `<button class="ob" data-i="${idx}" style="display:flex;align-items:center;gap:14px;width:100%;padding:14px 16px;border-radius:var(--r);background:var(--card);border:1.5px solid var(--bd);text-align:left;font-size:15px;line-height:1.7;touch-action:manipulation;font-weight:${sel ? 600 : 400};${st}${isChecked ? ';pointer-events:none' : ''}"><div style="min-width:32px;height:32px;border-radius:9px;background:${ibg};color:${ic};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0">${icon}</div><span style="flex:1">${opt}</span></button>`;
+      if (idx === q.answer) { st = 'border-color:var(--ok);background:var(--okm);color:var(--ok)'; ibg = 'var(--ok)'; ic = '#fff'; icon = '✓'; }
+      else if (sel && idx !== q.answer) { st = 'border-color:var(--bad);background:var(--badm);color:var(--bad)'; ibg = 'var(--bad)'; ic = '#fff'; icon = '✗'; }
+    } else if (sel) { st = 'border-color:var(--pri);background:var(--prim);color:var(--pri)'; ibg = 'var(--pri)'; ic = '#fff'; }
+    return `<button class="ob" data-i="${idx}" style="display:flex;align-items:center;gap:14px;width:100%;padding:14px 16px;border-radius:var(--r);background:var(--card);border:1.5px solid var(--bd);text-align:left;font-size:15px;line-height:1.7;touch-action:manipulation;font-weight:${sel?600:400};${st}${isChecked?';pointer-events:none':''}"><div style="min-width:32px;height:32px;border-radius:9px;background:${ibg};color:${ic};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0">${icon}</div><span style="flex:1">${opt}</span></button>`;
   }).join('');
 
-  let badge = '';
+  let badge = '', exp = '';
   if (isChecked) {
-    const c = S.answers[S.cur] === q.answer;
-    if (c) badge = '<div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--okm);color:var(--ok);text-align:center;font-weight:800">✅ 정답!</div>';
-    else badge = '<div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--badm);color:var(--bad);text-align:center;font-weight:800">❌ 오답</div>';
+    badge = S.answers[S.cur] === q.answer
+      ? '<div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--okm);color:var(--ok);text-align:center;font-weight:800">✅ 정답!</div>'
+      : '<div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--badm);color:var(--bad);text-align:center;font-weight:800">❌ 오답</div>';
+    if (q.explanation) exp = `<div style="margin-top:14px;padding:14px 16px;background:var(--prim);border-radius:var(--r);border:1px solid var(--bda)"><div style="color:var(--pri);font-weight:800;font-size:12px;margin-bottom:6px">💡 해설</div><div style="font-size:14px;line-height:1.8;white-space:pre-wrap">${q.explanation}</div></div>`;
   }
-  let exp = '';
-  if (isChecked && q.explanation) exp = `<div style="margin-top:14px;padding:14px 16px;background:var(--prim);border-radius:var(--r);border:1px solid var(--bda)"><div style="color:var(--pri);font-weight:800;font-size:12px;margin-bottom:6px">💡 해설</div><div style="font-size:14px;line-height:1.8;white-space:pre-wrap">${q.explanation}</div></div>`;
 
-  // Bottom bar: show next button if checked, or score info
-  const isLast = S.cur === total - 1;
-  const allDone = S.checked.size === total;
-  let bottomBtn = '';
-  if (isChecked && !isLast) {
-    bottomBtn = `<button id="bnxt" class="btn bp" style="flex:1;font-size:13px">다음 문제 ▶</button>`;
-  } else if (isChecked && isLast && allDone) {
-    bottomBtn = `<button id="bfinish" class="btn bg" style="flex:1;font-size:13px">🏠 완료 (${correct}/${total})</button>`;
-  } else if (isChecked && isLast) {
-    bottomBtn = `<div style="flex:1;text-align:center;color:var(--t2);font-size:13px;font-weight:700">마지막 문제! ${correct}/${S.checked.size} 맞음</div>`;
-  } else {
-    bottomBtn = `<div style="flex:1;text-align:center;color:var(--t3);font-size:12px">답을 선택하세요</div>`;
-  }
+  const isLast = S.cur === total - 1, allDone = S.checked.size === total;
+  let bottomBtn;
+  if (isChecked && !isLast) bottomBtn = `<button id="bnxt" class="btn bp" style="flex:1;font-size:13px">다음 문제 ▶</button>`;
+  else if (allDone) bottomBtn = `<button id="bfinish" class="btn bg" style="flex:1;font-size:13px">🏠 완료 (${correct}/${total})</button>`;
+  else if (isChecked && isLast) bottomBtn = `<div style="flex:1;text-align:center;color:var(--t2);font-size:13px;font-weight:700">마지막! ${correct}/${S.checked.size} 맞음</div>`;
+  else bottomBtn = `<div style="flex:1;text-align:center;color:var(--t3);font-size:12px">답을 선택하세요</div>`;
+
+  // Nav overlay
+  const navItems = S.quiz.questions.map((qi, i) => {
+    const done = S.checked.has(i), ic = i === S.cur;
+    let bg = 'var(--card)', bc = 'var(--bd)', tc = 'var(--t3)';
+    if (done) { if (S.answers[i] === qi.answer) { bg='var(--okm)';bc='var(--ok)';tc='var(--ok)' } else { bg='var(--badm)';bc='var(--bad)';tc='var(--bad)' } }
+    else if (ic) { bg='var(--prim)';bc='var(--pri)';tc='var(--pri)' }
+    return `<button class="nq" data-g="${i}" style="aspect-ratio:1;border:2px solid ${bc};border-radius:8px;background:${bg};color:${tc};font-size:11px;font-weight:800">${i+1}</button>`;
+  }).join('');
 
   return `<div style="min-height:100dvh;display:flex;flex-direction:column">
     <div style="background:var(--sf);border-bottom:1px solid var(--bd);padding:0 14px;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)">
       <div style="max-width:860px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:50px">
         <div style="display:flex;align-items:center;gap:8px"><button id="bpause" style="width:30px;height:30px;border-radius:8px;background:var(--raised);display:flex;align-items:center;justify-content:center;font-size:13px;border:1px solid var(--bd)">⏸</button><span style="font-weight:700;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.quiz.title}</span></div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="color:var(--ok);font-size:12px;font-weight:700">${correct}✓</span>
-          <span style="color:var(--bad);font-size:12px;font-weight:700">${S.checked.size - correct}✗</span>
-          <button id="bnav" style="background:var(--prim);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--pri)">${S.checked.size}/${total}</button></div></div>
+        <div style="display:flex;align-items:center;gap:10px"><span style="color:var(--ok);font-size:12px;font-weight:700">${correct}✓</span><span style="color:var(--bad);font-size:12px;font-weight:700">${S.checked.size-correct}✗</span>
+        <button id="bnav" style="background:var(--prim);border:1px solid var(--bd);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--pri)">${S.checked.size}/${total}</button></div></div>
       <div style="height:3px;background:var(--bd)"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--pri),var(--acc));transition:width .3s"></div></div></div>
     <div id="nov" style="display:none;position:fixed;inset:0;top:54px;z-index:99;background:rgba(0,0,0,.6)">
       <div style="max-width:500px;margin:0 auto;background:var(--sf);padding:16px;max-height:70dvh;overflow-y:auto;border:1px solid var(--bd);border-radius:0 0 16px 16px" onclick="event.stopPropagation()">
         <div style="font-weight:800;margin-bottom:10px">문제 목록</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:5px">
-        ${S.quiz.questions.map((qi, i) => {
-          const done = S.checked.has(i), ic = i === S.cur;
-          let bg = 'var(--card)', bc = 'var(--bd)', tc = 'var(--t3)';
-          if (done) {
-            if (S.answers[i] === qi.answer) { bg = 'var(--okm)'; bc = 'var(--ok)'; tc = 'var(--ok)' }
-            else { bg = 'var(--badm)'; bc = 'var(--bad)'; tc = 'var(--bad)' }
-          } else if (ic) { bg = 'var(--prim)'; bc = 'var(--pri)'; tc = 'var(--pri)' }
-          return `<button class="nq" data-g="${i}" style="aspect-ratio:1;border:2px solid ${bc};border-radius:8px;background:${bg};color:${tc};font-size:11px;font-weight:800">${i + 1}</button>` }).join('')}
-        </div></div></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:5px">${navItems}</div></div></div>
     <div style="flex:1;padding:20px 14px;max-width:860px;margin:0 auto;width:100%">
-      <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="background:var(--prim);color:var(--pri);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:800">Q.${S.cur + 1}/${total}</span><button id="bmk" style="font-size:18px">${S.marks.has(S.cur) ? '⭐' : '☆'}</button></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="background:var(--prim);color:var(--pri);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:800">Q.${S.cur+1}/${total}</span><button id="bmk" style="font-size:18px">${S.marks.has(S.cur)?'⭐':'☆'}</button></div>
       <div style="font-size:15px;font-weight:600;line-height:1.8;margin-bottom:22px;white-space:pre-wrap;word-break:keep-all">${q.question}</div>
-      <div style="display:flex;flex-direction:column;gap:8px">${optsHTML}</div>${badge}${exp}
-    </div>
+      <div style="display:flex;flex-direction:column;gap:8px">${optsHTML}</div>${badge}${exp}</div>
     <div style="background:var(--sf);border-top:1px solid var(--bd);padding:10px 14px;padding-bottom:max(10px,env(safe-area-inset-bottom));position:sticky;bottom:0;z-index:50">
       <div style="max-width:860px;margin:0 auto;display:flex;gap:8px;align-items:center">
-        <button id="bpv" class="btn bgh" style="padding:10px 14px;font-size:13px" ${S.cur === 0 ? 'disabled' : ''}>◀</button>
+        <button id="bpv" class="btn bgh" style="padding:10px 14px;font-size:13px" ${S.cur===0?'disabled':''}>◀</button>
         ${bottomBtn}
-        <button id="bskip" class="btn bgh" style="padding:10px 14px;font-size:13px" ${isLast ? 'disabled' : ''}>▶</button>
+        <button id="bskip" class="btn bgh" style="padding:10px 14px;font-size:13px" ${isLast?'disabled':''}>▶</button>
       </div></div></div>`;
 }
-
 function bindQuiz() {
-  // Answer selection → instant grade
-  $$('.ob').forEach(b => {
-    b.onclick = () => {
-      if (S.checked.has(S.cur)) return; // already checked
-      S.answers[S.cur] = +b.dataset.i;
-      S.checked.add(S.cur);
-      // Save wrong indices for history
-      saveSession();
-      R();
-    };
-  });
-
-  const bp = $('#bpv'), bskip = $('#bskip');
+  $$('.ob').forEach(b => { b.onclick = () => {
+    if (S.checked.has(S.cur)) return;
+    S.answers[S.cur] = +b.dataset.i; S.checked.add(S.cur); saveSession(); R();
+  }});
+  const bp = $('#bpv'), bs = $('#bskip');
   if (bp) bp.onclick = () => { S.cur = Math.max(0, S.cur - 1); R() };
-  if (bskip) bskip.onclick = () => { S.cur = Math.min(S.quiz.questions.length - 1, S.cur + 1); R() };
-
-  const bnxt = $('#bnxt');
-  if (bnxt) bnxt.onclick = () => { S.cur = Math.min(S.quiz.questions.length - 1, S.cur + 1); R() };
-
-  const bfinish = $('#bfinish');
-  if (bfinish) bfinish.onclick = async () => {
+  if (bs) bs.onclick = () => { S.cur = Math.min(S.quiz.questions.length - 1, S.cur + 1); R() };
+  const bnxt = $('#bnxt'); if (bnxt) bnxt.onclick = () => { S.cur++; R() };
+  const bf = $('#bfinish'); if (bf) bf.onclick = async () => {
     stopTimer();
-    // Save history
-    const qs = S.quiz.questions;
-    let correct = 0; const wi = [];
-    qs.forEach((q, i) => { if (S.answers[i] === q.answer) correct++; else wi.push(q.origIdx !== undefined ? q.origIdx : i) });
-    const h = LC.get(uKey('history')) || [];
-    h.unshift({ quizTitle: S.quiz.title.replace(' (오답복습)', ''), correct, total: qs.length, time: S.timer, date: Date.now(), wrongIndices: wi, mode: S.mode });
+    const qs = S.quiz.questions; let correct = 0; const wi = [];
+    qs.forEach((q, i) => { if (S.answers[i] === q.answer) correct++; else wi.push(q.origIdx !== undefined ? q.origIdx : (S.shuffleOrder ? S.shuffleOrder[i] : i)) });
+    const h = userHistory();
+    h.unshift({ quizId: S.quizId, quizTitle: S.quiz.title.replace(' (오답복습)',''), correct, total: qs.length, time: S.timer, date: Date.now(), wrongIndices: wi, mode: S.mode });
     if (h.length > 100) h.length = 100;
-    await setUserHistory(h);
-    await clearSession(S.quizIdx);
-    resetS();
-    S.screen = 'home'; R();
+    await saveUserHistory(h); await clearSession(S.quizId);
+    resetS(); S.screen = 'home'; R();
   };
-
   $('#bmk').onclick = () => { S.marks.has(S.cur) ? S.marks.delete(S.cur) : S.marks.add(S.cur); R() };
   const nav = $('#nov'); $('#bnav').onclick = () => { nav.style.display = nav.style.display === 'none' ? 'block' : 'none' }; nav.onclick = () => { nav.style.display = 'none' };
   $$('.nq').forEach(b => { b.onclick = e => { e.stopPropagation(); S.cur = +b.dataset.g; nav.style.display = 'none'; R() } });
-  $('#bpause').onclick = () => { if (confirm('일시정지? 진행상황 자동저장됩니다.')) { saveSession(); stopTimer(); resetS(); S.screen = 'home'; R() } };
-  let tx = null; document.ontouchstart = e => { tx = e.touches[0].clientX }; document.ontouchend = e => { if (tx === null) return; const d = e.changedTouches[0].clientX - tx; if (Math.abs(d) > 60) { if (d < 0 && S.cur < S.quiz.questions.length - 1) { S.cur++; R() } else if (d > 0 && S.cur > 0) { S.cur--; R() } } tx = null };
+  $('#bpause').onclick = () => { if (confirm('일시정지?')) { saveSession(); stopTimer(); resetS(); S.screen = 'home'; R() } };
+  let tx = null;
+  document.ontouchstart = e => { tx = e.touches[0].clientX };
+  document.ontouchend = e => { if (tx === null) return; const d = e.changedTouches[0].clientX - tx; if (Math.abs(d) > 60) { if (d < 0 && S.cur < S.quiz.questions.length - 1) { S.cur++; R() } else if (d > 0 && S.cur > 0) { S.cur--; R() } } tx = null };
 }
 
-// ═══════════════════
-// REVIEW (오답 복습에서 사용)
-// ═══════════════════
-function reviewHTML() {
-  const qs = S.quiz.questions; const wrongs = qs.map((q, i) => ({ ...q, idx: i, user: S.answers[i] })).filter(q => q.user !== q.answer);
-  const w = wrongs.length ? wrongs.map((q, i) => `<div class="fu" style="animation-delay:${i * .04}s;background:var(--sf);border-radius:14px;border:1px solid var(--bd);overflow:hidden">
-    <button class="rtg" data-ri="${q.idx}" style="width:100%;padding:12px 14px;text-align:left;display:flex;align-items:flex-start;gap:10px">
-      <span style="background:var(--badm);color:var(--bad);padding:2px 10px;border-radius:7px;font-size:11px;font-weight:800;flex-shrink:0">#${q.idx + 1}</span>
-      <span style="flex:1;font-size:13px;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${q.question}</span><span style="color:var(--t3);font-size:13px">▼</span></button>
-    <div class="rd" data-rd="${q.idx}" style="display:none;padding:0 14px 12px">
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-        <span style="background:var(--badm);color:var(--bad);padding:4px 10px;border-radius:7px;font-size:11px;font-weight:700">내 답: ${q.user !== undefined ? q.options[q.user] : '미응답'}</span>
-        ${q.answer !== -1 ? `<span style="background:var(--okm);color:var(--ok);padding:4px 10px;border-radius:7px;font-size:11px;font-weight:700">정답: ${q.options[q.answer]}</span>` : ''}</div>
-      ${q.explanation ? `<div style="background:var(--prim);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.7"><strong style="color:var(--pri)">해설:</strong> ${q.explanation}</div>` : ''}</div></div>`).join('')
-  : '<div style="text-align:center;padding:50px;background:var(--sf);border-radius:16px;border:1px solid var(--bd)"><div style="font-size:48px;margin-bottom:8px">🎉</div><div style="color:var(--ok);font-size:18px;font-weight:800">전문 만점!</div></div>';
-  return `<div style="min-height:100dvh;padding:20px 14px"><div style="max-width:760px;margin:0 auto"><div style="display:flex;justify-content:space-between;margin-bottom:20px"><div><h2 style="font-size:18px;font-weight:900">📝 오답 노트</h2><p style="color:var(--t2);font-size:12px;margin-top:3px">틀린 문제 ${wrongs.length}개</p></div><button id="bhm2" class="btn bgh" style="font-size:11px;padding:7px 12px">🏠 홈</button></div><div style="display:flex;flex-direction:column;gap:10px">${w}</div></div></div>`;
-}
-function bindReview() { $('#bhm2').onclick = () => { resetS(); S.screen = 'home'; R() }; $$('.rtg').forEach(b => { b.onclick = () => { const d = document.querySelector('[data-rd="' + b.dataset.ri + '"]'); d.style.display = d.style.display === 'none' ? 'block' : 'none'; b.querySelector('span:last-child').textContent = d.style.display === 'none' ? '▼' : '▲' } }) }
-
-function resetS() { stopTimer(); S.quiz = null; S.quizIdx = -1; S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0; S.mode = 'normal' }
+function resetS() { stopTimer(); S.quiz = null; S.quizId = null; S.cur = 0; S.answers = {}; S.marks = new Set(); S.checked = new Set(); S.timer = 0; S.mode = 'normal'; S.shuffleOrder = null; }
 
 // ═══════════════════
-// INIT - Load from Firebase then render
+// INIT
 // ═══════════════════
 async function init() {
-  R(); // show loading
+  R();
   try {
-    // Load members from cloud
-    const members = await getMembers();
-    // If user was logged in, load their data
-    if (currentUser) {
-      await getUserQuizzes();
-      await getUserHistory();
-      await getUserSessions();
-      S.screen = 'home';
-    } else {
-      S.screen = 'auth';
-    }
-  } catch (e) {
-    console.error('Init error:', e);
-    S.screen = 'auth';
-  }
+    await loadMembers();
+    await loadQuizList();
+    if (currentUser) { await loadUserData(); S.screen = 'home'; }
+    else S.screen = 'auth';
+  } catch(e) { console.error('Init:', e); S.screen = 'auth'; }
   R();
 }
-
 init();
-
 </script>
 </body>
 </html>
