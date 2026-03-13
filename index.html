@@ -36,12 +36,7 @@ button{font-family:var(--fn);cursor:pointer;border:none;background:none;color:in
 <script>
 /*
  ╔═══════════════════════════════════════════════════╗
- ║  ATP CBT v4.1 - Image Support Added               ║
- ║                                                   ║
- ║  v4.1 Changes:                                    ║
- ║  - Question image display (chart/figure support)  ║
- ║  - Tap to zoom, drag to pan on images             ║
- ║  - JSON: optional "image" field per question      ║
+ ║  ATP CBT v4 - Scalable + Private Login            ║
  ║                                                   ║
  ║  Firestore:                                       ║
  ║  /app/members → {list:[{id,pw},...]}              ║
@@ -59,7 +54,6 @@ firebase.initializeApp({
   messagingSenderId:"967371236328",appId:"1:967371236328:web:d8ea1c12335b35928bfa5d"
 });
 const db=firebase.firestore(), ADMIN_KEY="rpj7646", CHUNK=200;
-const IMAGE_BASE='https://beombemba.github.io/study/charts/';
 
 // ═══ LOCAL CACHE ═══
 const LC={
@@ -246,6 +240,7 @@ function adminHTML(){
   const qHTML=quizzes.length?quizzes.map((q,i)=>
     `<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--raised);border:1px solid var(--bd);border-radius:10px;margin-bottom:6px">
       <div style="flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${q.title} <span style="color:var(--t3);font-size:11px">(${q.count}문제)</span></div>
+      <button class="ren-quiz" data-id="${q.id}" data-title="${q.title.replace(/"/g,'&quot;')}" style="padding:5px 10px;border-radius:7px;background:var(--prim);color:var(--pri);font-size:11px;font-weight:600">이름변경</button>
       <button class="del-quiz" data-id="${q.id}" style="padding:5px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600">삭제</button></div>`
   ).join(''):'<div style="text-align:center;padding:20px;color:var(--t3);font-size:12px">문제집 없음</div>';
 
@@ -309,6 +304,17 @@ function bindAdmin(){
     if(!confirm('"'+(q?q.title:qid)+'" 삭제?'))return;b.textContent='삭제중...';b.disabled=true;
     await deleteQuiz(qid);alert('삭제 완료!');R();
   }});
+  $$('.ren-quiz').forEach(b=>{b.onclick=async()=>{
+    const qid=b.dataset.id,oldTitle=b.dataset.title;
+    const newTitle=prompt('새 문제집 이름:',oldTitle);
+    if(!newTitle||newTitle.trim()===''||newTitle===oldTitle)return;
+    b.textContent='변경중...';b.disabled=true;
+    try{
+      await db.collection('quizzes').doc(qid).update({title:newTitle.trim()});
+      const list=quizListLocal().map(q=>q.id===qid?{...q,title:newTitle.trim()}:q);
+      LC.set('quizList',list);alert('이름 변경 완료!');R();
+    }catch(e){alert('이름 변경 실패: '+e.message);b.textContent='이름변경';b.disabled=false}
+  }});
 }
 
 // ═══ HOME ═══
@@ -351,6 +357,17 @@ function homeHTML(){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div><div style="font-size:13px;color:var(--t2)">환영합니다</div><div style="font-size:20px;font-weight:900">${currentUser}님 ✈️</div></div>
       <button id="logout" class="btn bgh" style="padding:8px 14px;font-size:12px">로그아웃</button></div>
+    <div id="pw-change" style="display:none;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:16px">
+      <div style="font-weight:800;font-size:14px;margin-bottom:12px">🔒 비밀번호 변경</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <input id="pw-cur" class="inp" type="password" placeholder="현재 비밀번호">
+        <input id="pw-new" class="inp" type="password" placeholder="새 비밀번호">
+        <input id="pw-confirm" class="inp" type="password" placeholder="새 비밀번호 확인">
+        <div id="pw-err" class="err"></div>
+        <div style="display:flex;gap:8px"><button id="pw-cancel" class="btn bgh" style="flex:1;font-size:13px">취소</button><button id="pw-save" class="btn bp" style="flex:1;font-size:13px">변경</button></div>
+      </div></div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button id="btn-chpw" class="btn bgh" style="flex:1;padding:10px;font-size:12px">🔒 비밀번호 변경</button></div>
     ${specialHTML}
     <div class="tabs" style="margin-bottom:16px"><div class="tab ${S.homeTab==='list'?'on':''}" data-ht="list">📚 문제집</div><div class="tab ${S.homeTab==='history'?'on':''}" data-ht="history">📊 기록</div></div>
     <div id="hl" style="display:${S.homeTab==='list'?'flex':'none'};flex-direction:column;gap:8px;margin-bottom:16px">${listHTML}</div>
@@ -361,6 +378,19 @@ function homeHTML(){
 function bindHome(){
   $$('[data-ht]').forEach(t=>{t.onclick=()=>{S.homeTab=t.dataset.ht;R()}});
   $('#logout').onclick=()=>{currentUser=null;LC.del('currentUser');resetS();S.screen='auth';R()};
+  $('#btn-chpw').onclick=()=>{$('#pw-change').style.display='block';$('#pw-cur').value='';$('#pw-new').value='';$('#pw-confirm').value='';$('#pw-err').style.display='none'};
+  $('#pw-cancel').onclick=()=>{$('#pw-change').style.display='none'};
+  $('#pw-save').onclick=async()=>{
+    const cur=$('#pw-cur').value,nw=$('#pw-new').value,cf=$('#pw-confirm').value,err=$('#pw-err');
+    err.style.display='none';
+    const ms=membersLocal(),me=ms.find(m=>(m.id||m.name)===currentUser);
+    if(!me){err.textContent='회원 정보를 찾을 수 없습니다';err.style.display='block';return}
+    if(cur!==me.pw){err.textContent='현재 비밀번호가 틀렸습니다';err.style.display='block';return}
+    if(!nw||nw.length<2){err.textContent='새 비밀번호를 2자 이상 입력하세요';err.style.display='block';return}
+    if(nw!==cf){err.textContent='새 비밀번호가 일치하지 않습니다';err.style.display='block';return}
+    me.pw=nw;await saveMembers(ms);
+    alert('비밀번호가 변경되었습니다!');$('#pw-change').style.display='none';
+  };
   const ch=$('#clrh');if(ch)ch.onclick=async()=>{if(confirm('기록 삭제?')){await saveU('hist',[]);R()}};
   $$('[data-start]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startQuiz(el.dataset.start,false)}});
   $$('[data-resume]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startQuiz(el.dataset.resume,true)}});
@@ -452,8 +482,7 @@ function quizHTML(){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <span style="background:var(--prim);color:var(--pri);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:800">Q.${S.cur+1}/${total}</span>
         <button id="bmk" style="font-size:22px;padding:4px">${isStarred?'⭐':'☆'}</button></div>
-      <div style="font-size:15px;font-weight:600;line-height:1.8;margin-bottom:${q.image?'14px':'22px'};white-space:pre-wrap;word-break:keep-all">${q.question}</div>
-      ${q.image?`<div style="margin-bottom:18px;text-align:center;background:var(--raised);border-radius:var(--r);border:1px solid var(--bd);overflow:hidden"><img src="${IMAGE_BASE}${q.image}" alt="참조 차트" style="max-width:100%;display:block;margin:0 auto;cursor:pointer" onclick="if(this.dataset.z==='1'){this.style.maxWidth='100%';this.parentElement.style.overflow='hidden';this.dataset.z='0'}else{this.style.maxWidth='250%';this.parentElement.style.overflow='auto';this.dataset.z='1'}" data-z="0"><div style="padding:6px;font-size:11px;color:var(--t3)">📌 탭하면 확대 · 드래그로 이동</div></div>`:''}
+      <div style="font-size:15px;font-weight:600;line-height:1.8;margin-bottom:22px;white-space:pre-wrap;word-break:keep-all">${q.question}</div>
       <div style="display:flex;flex-direction:column;gap:8px">${optsHTML}</div>${badge}${exp}${srcInfo}</div>
     <div style="background:var(--sf);border-top:1px solid var(--bd);padding:10px 14px;padding-bottom:max(10px,env(safe-area-inset-bottom));position:sticky;bottom:0;z-index:50">
       <div style="max-width:860px;margin:0 auto;display:flex;gap:8px;align-items:center">
@@ -501,7 +530,7 @@ function bindQuiz(){
   const nav=$('#nov');$('#bnav').onclick=()=>{nav.style.display=nav.style.display==='none'?'block':'none'};nav.onclick=()=>{nav.style.display='none'};
   $$('.nq').forEach(b=>{b.onclick=e=>{e.stopPropagation();S.cur=+b.dataset.g;nav.style.display='none';R()}});
   $('#bpause').onclick=()=>{if(confirm('일시정지?')){saveSess();stopTimer();resetS();S.screen='home';R()}};
-  let tx=null;document.ontouchstart=e=>{if(e.target.closest('[data-z="1"]'))return;tx=e.touches[0].clientX};document.ontouchend=e=>{if(tx===null)return;const d=e.changedTouches[0].clientX-tx;if(Math.abs(d)>60){if(d<0&&S.cur<S.quiz.questions.length-1){S.cur++;R()}else if(d>0&&S.cur>0){S.cur--;R()}}tx=null};
+  let tx=null;document.ontouchstart=e=>{tx=e.touches[0].clientX};document.ontouchend=e=>{if(tx===null)return;const d=e.changedTouches[0].clientX-tx;if(Math.abs(d)>60){if(d<0&&S.cur<S.quiz.questions.length-1){S.cur++;R()}else if(d>0&&S.cur>0){S.cur--;R()}}tx=null};
 }
 
 function resetS(){stopTimer();S.quiz=null;S.quizId=null;S.cur=0;S.answers={};S.marks=new Set();S.checked=new Set();S.timer=0;S.mode='normal';S.shuffleOrder=null}
