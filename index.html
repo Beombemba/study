@@ -36,7 +36,12 @@ button{font-family:var(--fn);cursor:pointer;border:none;background:none;color:in
 <script>
 /*
  ╔═══════════════════════════════════════════════════╗
- ║  ATP CBT v4 - Scalable + Private Login            ║
+ ║  ATP CBT v4.1 - Image Support Added               ║
+ ║                                                   ║
+ ║  v4.1 Changes:                                    ║
+ ║  - Question image display (chart/figure support)  ║
+ ║  - Tap to zoom, drag to pan on images             ║
+ ║  - JSON: optional "image" field per question      ║
  ║                                                   ║
  ║  Firestore:                                       ║
  ║  /app/members → {list:[{id,pw},...]}              ║
@@ -54,6 +59,7 @@ firebase.initializeApp({
   messagingSenderId:"967371236328",appId:"1:967371236328:web:d8ea1c12335b35928bfa5d"
 });
 const db=firebase.firestore(), ADMIN_KEY="rpj7646", CHUNK=200;
+const IMAGE_BASE='https://beombemba.github.io/study/charts/';
 
 // ═══ LOCAL CACHE ═══
 const LC={
@@ -446,7 +452,8 @@ function quizHTML(){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <span style="background:var(--prim);color:var(--pri);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:800">Q.${S.cur+1}/${total}</span>
         <button id="bmk" style="font-size:22px;padding:4px">${isStarred?'⭐':'☆'}</button></div>
-      <div style="font-size:15px;font-weight:600;line-height:1.8;margin-bottom:22px;white-space:pre-wrap;word-break:keep-all">${q.question}</div>
+      <div style="font-size:15px;font-weight:600;line-height:1.8;margin-bottom:${q.image?'14px':'22px'};white-space:pre-wrap;word-break:keep-all">${q.question}</div>
+      ${q.image?`<div style="margin-bottom:18px;text-align:center;background:var(--raised);border-radius:var(--r);border:1px solid var(--bd);overflow:hidden"><img src="${IMAGE_BASE}${q.image}" alt="참조 차트" style="max-width:100%;display:block;margin:0 auto;cursor:pointer" onclick="if(this.dataset.z==='1'){this.style.maxWidth='100%';this.parentElement.style.overflow='hidden';this.dataset.z='0'}else{this.style.maxWidth='250%';this.parentElement.style.overflow='auto';this.dataset.z='1'}" data-z="0"><div style="padding:6px;font-size:11px;color:var(--t3)">📌 탭하면 확대 · 드래그로 이동</div></div>`:''}
       <div style="display:flex;flex-direction:column;gap:8px">${optsHTML}</div>${badge}${exp}${srcInfo}</div>
     <div style="background:var(--sf);border-top:1px solid var(--bd);padding:10px 14px;padding-bottom:max(10px,env(safe-area-inset-bottom));position:sticky;bottom:0;z-index:50">
       <div style="max-width:860px;margin:0 auto;display:flex;gap:8px;align-items:center">
@@ -494,7 +501,7 @@ function bindQuiz(){
   const nav=$('#nov');$('#bnav').onclick=()=>{nav.style.display=nav.style.display==='none'?'block':'none'};nav.onclick=()=>{nav.style.display='none'};
   $$('.nq').forEach(b=>{b.onclick=e=>{e.stopPropagation();S.cur=+b.dataset.g;nav.style.display='none';R()}});
   $('#bpause').onclick=()=>{if(confirm('일시정지?')){saveSess();stopTimer();resetS();S.screen='home';R()}};
-  let tx=null;document.ontouchstart=e=>{tx=e.touches[0].clientX};document.ontouchend=e=>{if(tx===null)return;const d=e.changedTouches[0].clientX-tx;if(Math.abs(d)>60){if(d<0&&S.cur<S.quiz.questions.length-1){S.cur++;R()}else if(d>0&&S.cur>0){S.cur--;R()}}tx=null};
+  let tx=null;document.ontouchstart=e=>{if(e.target.closest('[data-z="1"]'))return;tx=e.touches[0].clientX};document.ontouchend=e=>{if(tx===null)return;const d=e.changedTouches[0].clientX-tx;if(Math.abs(d)>60){if(d<0&&S.cur<S.quiz.questions.length-1){S.cur++;R()}else if(d>0&&S.cur>0){S.cur--;R()}}tx=null};
 }
 
 function resetS(){stopTimer();S.quiz=null;S.quizId=null;S.cur=0;S.answers={};S.marks=new Set();S.checked=new Set();S.timer=0;S.mode='normal';S.shuffleOrder=null}
