@@ -535,6 +535,9 @@ function bindQuiz(){
 
 function resetS(){stopTimer();S.quiz=null;S.quizId=null;S.cur=0;S.answers={};S.marks=new Set();S.checked=new Set();S.timer=0;S.mode='normal';S.shuffleOrder=null}
 
+// ═══ Safari bfcache fix ═══
+window.addEventListener('pageshow',function(e){if(e.persisted)window.location.reload()});
+
 // ═══ INIT ═══
 async function init(){
   R(); // show loading
