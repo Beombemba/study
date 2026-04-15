@@ -360,13 +360,35 @@ function homeHTML(){
   const quizzes=quizListLocal(),history=uHist(),sessions=uSess(),wrongs=uWrongs(),stars=uStars();
   const wrongCount=Object.keys(wrongs).length,starCount=Object.keys(stars).length;
 
-  const listHTML=quizzes.length?quizzes.map((q,i)=>{
+  const vocabQuizzes=quizzes.filter(q=>q.id==='__toeic');
+  const avaQuizzes=quizzes.filter(q=>q.id!=='__toeic');
+
+  // 단어장 섹션
+  const vocabHTML=vocabQuizzes.map((q,i)=>{
+    const starCount2=Object.keys(stars).filter(k=>k.startsWith('__toeic_')).length;
+    return`<div class="fu" style="animation-delay:${i*.04}s;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden">
+      <div style="padding:14px 16px;display:flex;align-items:center;gap:12px">
+        <div style="width:44px;height:44px;border-radius:11px;background:rgba(245,183,49,.15);display:flex;align-items:center;justify-content:center;font-size:22px">📖</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px">${q.title}</div>
+          <div style="color:var(--t2);font-size:12px;margin-top:2px;display:flex;gap:8px">
+            <span>${q.count}단어</span>${starCount2?`<span style="color:var(--warn)">⭐ ${starCount2}개 별표</span>`:''}
+          </div>
+        </div>
+      </div>
+      <div style="padding:0 12px 10px">
+        <button class="btn" data-cards="${q.id}" style="width:100%;padding:10px;font-size:13px;font-weight:700;background:rgba(245,183,49,.12);color:var(--warn);border:1.5px solid var(--warn);border-radius:12px">📖 단어장 열기</button>
+      </div></div>`;
+  }).join('');
+
+  // 항공 문제 섹션
+  const listHTML=avaQuizzes.length?avaQuizzes.map((q,i)=>{
     const sess=sessions[q.id],prog=sess?Math.round((sess.checked||[]).length/q.count*100):0;
     const past=history.filter(h=>h.quizId===q.id);
     const best=past.length?Math.max(...past.map(h=>Math.round(h.correct/h.total*100))):null;
     return`<div class="fu" style="animation-delay:${i*.04}s;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden">
       <div style="padding:14px 16px;display:flex;align-items:center;gap:12px">
-        <div style="width:44px;height:44px;border-radius:11px;background:var(--prim);display:flex;align-items:center;justify-content:center;font-size:20px">${q.id==='__toeic'?'📖':'✈️'}</div>
+        <div style="width:44px;height:44px;border-radius:11px;background:var(--prim);display:flex;align-items:center;justify-content:center;font-size:20px">✈️</div>
         <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${q.title}</div>
         <div style="color:var(--t2);font-size:12px;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap"><span>${q.count}문제</span>${best!==null?`<span style="color:var(--ok)">최고${best}%</span>`:''}${sess?`<span style="color:var(--warn)">진행${prog}%</span>`:''}</div></div></div>
       <div style="padding:0 12px 10px;display:flex;gap:6px;flex-wrap:wrap">
@@ -408,6 +430,8 @@ function homeHTML(){
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <button id="btn-chpw" class="btn bgh" style="flex:1;padding:10px;font-size:12px">🔒 비밀번호 변경</button></div>
     ${specialHTML}
+    ${vocabHTML?`<div style="margin-bottom:8px;font-size:12px;font-weight:700;color:var(--warn);letter-spacing:.05em">📖 단어장</div><div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">${vocabHTML}</div>`:''}
+    <div style="margin-bottom:8px;font-size:12px;font-weight:700;color:var(--t3);letter-spacing:.05em">✈️ 항공 문제</div>
     <div class="tabs" style="margin-bottom:16px"><div class="tab ${S.homeTab==='list'?'on':''}" data-ht="list">📚 문제집</div><div class="tab ${S.homeTab==='history'?'on':''}" data-ht="history">📊 기록</div></div>
     <div id="hl" style="display:${S.homeTab==='list'?'flex':'none'};flex-direction:column;gap:8px;margin-bottom:16px">${listHTML}</div>
     <div id="hh" style="display:${S.homeTab==='history'?'flex':'none'};flex-direction:column;gap:8px;margin-bottom:16px">${histHTML}</div>
