@@ -358,7 +358,9 @@ function bindAdmin(){
 // ═══ HOME ═══
 function homeHTML(){
   const quizzes=quizListLocal(),history=uHist(),sessions=uSess(),wrongs=uWrongs(),stars=uStars();
-  const wrongCount=Object.keys(wrongs).length,starCount=Object.keys(stars).length;
+  // 항공 문제 전용 (토익 별표 제외)
+  const wrongCount=Object.keys(wrongs).filter(k=>!k.startsWith('__toeic_')).length;
+  const starCount=Object.keys(stars).filter(k=>!k.startsWith('__toeic_')).length;
 
   const vocabQuizzes=quizzes.filter(q=>q.id==='__toeic');
   const avaQuizzes=quizzes.filter(q=>q.id!=='__toeic');
@@ -475,9 +477,11 @@ async function startQuiz(qid,resume){
 
 async function startSpecial(type){
   const data=type==='wrongs'?uWrongs():uStars();
-  const keys=Object.keys(data);if(!keys.length){alert(type==='wrongs'?'오답이 없습니다! 🎉':'별표 문제가 없습니다');return}
-  // Group by quizId
-  const byQuiz={};keys.forEach(k=>{const[qid,...rest]=k.split('_');const idx=parseInt(rest.join('_'));if(!byQuiz[qid])byQuiz[qid]=[];byQuiz[qid].push(idx)});
+  // 토익 단어장 키 제외 (항공 문제 전용)
+  const keys=Object.keys(data).filter(k=>!k.startsWith('__toeic_'));
+  if(!keys.length){alert(type==='wrongs'?'오답이 없습니다! 🎉':'별표 문제가 없습니다');return}
+  // Group by quizId — lastIndexOf('_')로 파싱해야 ID에 _ 포함된 경우도 정확히 처리
+  const byQuiz={};keys.forEach(k=>{const sep=k.lastIndexOf('_');const qid=k.slice(0,sep);const idx=parseInt(k.slice(sep+1));if(!byQuiz[qid])byQuiz[qid]=[];byQuiz[qid].push(idx)});
   // Load all needed quizzes
   let allQs=[];
   for(const qid of Object.keys(byQuiz)){
