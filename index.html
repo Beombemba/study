@@ -224,7 +224,12 @@ function bindAuth(){
     const id=$('#login-id').value.trim(),pw=$('#login-pw').value,err=$('#login-err');
     err.style.display='none';
     if(!id||!pw){err.textContent='아이디와 비밀번호를 입력하세요';err.style.display='block';return}
-    const ms=membersLocal(),m=ms.find(x=>(x.id||x.name)===id);
+    const btn=$('#login-btn');btn.disabled=true;btn.textContent='로그인 중...';
+    // 캐시가 비어있으면 Firestore에서 다시 시도
+    let ms=membersLocal();
+    if(!ms.length){try{ms=await loadMembers()}catch(e){}}
+    btn.disabled=false;btn.textContent='로그인';
+    const m=ms.find(x=>(x.id||x.name)===id);
     if(!m){err.textContent='존재하지 않는 아이디입니다';err.style.display='block';return}
     if(m.pw!==pw){err.textContent='비밀번호가 틀렸습니다';err.style.display='block';return}
     currentUser=id;LC.set('currentUser',currentUser);
