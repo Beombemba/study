@@ -147,7 +147,7 @@ function uToeicStars(){return LC.get('u_'+currentUser+'_toeicStars')||{}}
 function uToeicCardSess(){return LC.get('u_'+currentUser+'_toeicCardSess')||null}
 function saveToeicCardSess(){
   if(S.cardsQuizId!=='__toeic'||!currentUser)return;
-  const sess={deckOrder:S.cardsDeck.map(q=>q._oidx),cur:S.cardsCur,know:[...S.cardsKnow],dontKnow:[...S.cardsDontKnow],date:Date.now()};
+  const sess={type:'full',deckOrder:S.cardsDeck.map(q=>q._oidx),cur:S.cardsCur,know:[...S.cardsKnow],dontKnow:[...S.cardsDontKnow],date:Date.now()};
   LC.set('u_'+currentUser+'_toeicCardSess',sess);
   saveU('toeicCardSess',sess);
 }
@@ -534,7 +534,7 @@ async function startToeicCards(resume){
   S.cardsQuizId='__toeic';S.cardsTitle='토익 필수 단어 1011';S.cardsFlipped=false;S.cardsKnow=new Set();S.cardsDontKnow=new Set();
   if(resume){
     const sess=uToeicCardSess();
-    if(sess&&sess.deckOrder){
+    if(sess&&sess.type==='full'&&sess.deckOrder){
       S.cardsDeck=sess.deckOrder.filter(i=>allQs[i]).map(i=>({...allQs[i],_qid:'__toeic',_oidx:i}));
       S.cardsCur=sess.cur||0;
       S.cardsKnow=new Set(sess.know||[]);
