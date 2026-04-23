@@ -94,7 +94,7 @@ async function loadQuizList(){
 function quizListLocal(){return quizListWithBuiltin()}
 
 async function loadQuizQ(qid){
-  if(qid==='__toeic'){if(!LC.get('qz___toeic'))LC.set('qz___toeic',TOEIC_Q);return TOEIC_Q;}
+  if(qid==='__toeic'||qid==='__toeic_star'){if(!LC.get('qz___toeic'))LC.set('qz___toeic',TOEIC_Q);return TOEIC_Q;}
   if(qid==='__gj'){if(!LC.get('qz___gj'))LC.set('qz___gj',QD_GJ);return QD_GJ;}
   if(qid==='__bt'){if(!LC.get('qz___bt'))LC.set('qz___bt',QD_BT);return QD_BT;}
   if(qid==='__at'){if(!LC.get('qz___at'))LC.set('qz___at',QD_AT);return QD_AT;}
@@ -553,7 +553,7 @@ async function startToeicStarCards(){
   if(!starredIdx.length){alert('별표한 단어가 없습니다');return}
   const allQs=await loadQuizQ('__toeic');
   const deck=shuffle(starredIdx.filter(i=>allQs[i]).map(i=>({...allQs[i],_qid:'__toeic',_oidx:i})));
-  S.cardsQuizId='__toeic';S.cardsTitle=`⭐ 별표 단어 (${deck.length}개)`;
+  S.cardsQuizId='__toeic_star';S.cardsTitle=`⭐ 별표 단어 (${deck.length}개)`;
   S.cardsDeck=deck;S.cardsCur=0;S.cardsFlipped=false;S.cardsKnow=new Set();S.cardsDontKnow=new Set();
   S.screen='cards';R();
 }
@@ -677,7 +677,7 @@ async function startCards(qid, deckOverride){
 
 function cardsHTML(){
   const deck=S.cardsDeck,total=deck.length,cur=S.cardsCur;
-  const isVocab=S.cardsQuizId==='__toeic';
+  const isVocab=S.cardsQuizId==='__toeic'||S.cardsQuizId==='__toeic_star';
   const knowN=S.cardsKnow.size,dontN=S.cardsDontKnow.size;
   const stars=uStars();
   const toeicStars=uToeicStars();
@@ -833,7 +833,7 @@ function bindCards(){
   const back=document.getElementById('c-back');
   if(back)back.onclick=()=>{saveToeicCardSess();S.screen='home';R()};
 
-  const isVocab=S.cardsQuizId==='__toeic';
+  const isVocab=S.cardsQuizId==='__toeic'||S.cardsQuizId==='__toeic_star';
 
   // Flip on tap
   const scene=document.getElementById('card-scene');
