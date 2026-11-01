@@ -78,6 +78,16 @@ async function loadMembers(){
 }
 async function saveMembers(m){LC.set('members',m);try{await db.collection('app').doc('members').set({list:m})}catch(e){console.warn(e)}}
 function membersLocal(){return LC.get('members')||[]}
+// ═══ 문제집 권한 ═══
+// access 배열이 있으면 그 문제집만, 없으면(기존 멤버) RESTRICTED를 뺀 전부
+const RESTRICTED=['__737'];
+function memberOf(id){return membersLocal().find(m=>(m.id||m.name)===id)||null}
+function canAccess(qid,uid){
+  const m=memberOf(uid||currentUser);if(!m)return false;
+  if(Array.isArray(m.access))return m.access.includes(qid);
+  return !RESTRICTED.includes(qid);
+}
+function userQuizList(){return quizListLocal().filter(q=>canAccess(q.id))}
 
 // Quizzes (shared, chunked)
 async function loadQuizList(){
@@ -278,7 +288,13 @@ function adminHTML(){
     return`<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:12px">
       <div style="width:36px;height:36px;border-radius:50%;background:var(--prim);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--pri)">${mid[0].toUpperCase()}</div>
       <div style="flex:1"><div style="font-weight:700;font-size:14px">${mid}</div><div style="color:var(--t3);font-size:11px">PW: ${m.pw||'미설정'}</div></div>
-      <button class="del-m" data-idx="${i}" style="padding:6px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600">삭제</button></div>`}
+      <button class="perm-m" data-idx="${i}" style="padding:6px 10px;border-radius:7px;background:var(--prim);color:var(--pri);font-size:11px;font-weight:600">권한 (${quizzes.filter(q=>canAccess(q.id,mid)).length}/${quizzes.length})</button>
+      <button class="del-m" data-idx="${i}" style="padding:6px 10px;border-radius:7px;background:var(--badm);color:var(--bad);font-size:11px;font-weight:600">삭제</button></div>
+    <div id="perm-${i}" style="display:none;margin:-4px 0 4px;padding:12px 14px;background:var(--raised);border:1px solid var(--bd);border-radius:12px">
+      <div style="font-size:12px;color:var(--t2);margin-bottom:8px">${mid}님이 볼 수 있는 문제집</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">${quizzes.map(q=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" class="perm-cb-${i}" value="${q.id}" ${canAccess(q.id,mid)?'checked':''} style="width:16px;height:16px;accent-color:var(--pri)"> ${q.title}</label>`).join('')}</div>
+      <div style="display:flex;gap:6px"><button class="perm-all btn bgh" data-idx="${i}" data-v="1" style="flex:1;padding:7px;font-size:11px">전체 선택</button><button class="perm-all btn bgh" data-idx="${i}" data-v="0" style="flex:1;padding:7px;font-size:11px">전체 해제</button><button class="perm-save btn bp" data-idx="${i}" style="flex:1.4;padding:7px;font-size:11px">💾 권한 저장</button></div>
+    </div>`}
   ).join(''):'<div style="text-align:center;padding:30px;color:var(--t3)">멤버 없음</div>';
   const qHTML=quizzes.length?quizzes.map((q,i)=>
     `<div class="fu" style="animation-delay:${i*.03}s;display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--raised);border:1px solid var(--bd);border-radius:10px;margin-bottom:6px">
@@ -333,6 +349,14 @@ function bindAdmin(){
     const ms=membersLocal();if(ms.find(m=>m.id===id)){alert('이미 존재하는 아이디');return}
     ms.push({id,pw});await saveMembers(ms);R();
   };
+  $$('.perm-m').forEach(b=>{b.onclick=()=>{const p=$('#perm-'+b.dataset.idx);p.style.display=p.style.display==='none'?'block':'none'}});
+  $$('.perm-all').forEach(b=>{b.onclick=()=>{$$('.perm-cb-'+b.dataset.idx).forEach(c=>{c.checked=b.dataset.v==='1'})}});
+  $$('.perm-save').forEach(b=>{b.onclick=async()=>{
+    const idx=+b.dataset.idx,ms=membersLocal();
+    ms[idx].access=[...$$('.perm-cb-'+idx)].filter(c=>c.checked).map(c=>c.value);
+    b.disabled=true;b.textContent='저장 중...';
+    await saveMembers(ms);alert((ms[idx].id||ms[idx].name)+' 권한 저장 완료 ('+ms[idx].access.length+'개 문제집)');R();
+  }});
   $$('.del-m').forEach(b=>{b.onclick=async()=>{const ms=membersLocal(),idx=+b.dataset.idx;if(!confirm(ms[idx].id+' 삭제?'))return;ms.splice(idx,1);await saveMembers(ms);R()}});
   $('#adm-save-quiz').onclick=async()=>{
     const jerr=$('#adm-jerr'),sel=$('#quiz-select').value;
@@ -384,7 +408,7 @@ function bindAdmin(){
 
 // ═══ HOME ═══
 function homeHTML(){
-  const quizzes=quizListLocal(),history=uHist(),sessions=uSess(),wrongs=uWrongs(),stars=uStars();
+  const quizzes=userQuizList(),history=uHist(),sessions=uSess(),wrongs=uWrongs(),stars=uStars();
   // 항공 문제 전용 (토익 별표 제외)
   const wrongCount=Object.keys(wrongs).length;
   const starCount=Object.keys(stars).length;
@@ -500,7 +524,7 @@ function bindHome(){
 
 // ═══ START QUIZ ═══
 async function startQuiz(qid,resume){
-  const meta=quizListLocal().find(q=>q.id===qid);if(!meta)return;
+  const meta=userQuizList().find(q=>q.id===qid);if(!meta){alert('이 문제집 권한이 없습니다');return}
   const questions=await loadQuizQ(qid);if(!questions.length){alert('문제 로드 실패');return}
   S.quizId=qid;S.mode='normal';S.cur=0;S.answers={};S.marks=new Set();S.checked=new Set();S.timer=0;
   if(resume){const ss=loadSess(qid);if(ss){S.cur=ss.cur;S.answers=ss.answers||{};S.marks=new Set(ss.marks||[]);S.checked=new Set(ss.checked||[]);S.timer=ss.timer||0;S.shuffleOrder=ss.shuffleOrder||shuffle(questions.map((_,i)=>i))}else{S.shuffleOrder=shuffle(questions.map((_,i)=>i))}}
@@ -519,6 +543,7 @@ async function startSpecial(type){
   // Load all needed quizzes
   let allQs=[];
   for(const qid of Object.keys(byQuiz)){
+    if(!canAccess(qid))continue;
     const qs=await loadQuizQ(qid);const meta=quizListLocal().find(q=>q.id===qid);
     byQuiz[qid].forEach(idx=>{if(qs[idx])allQs.push({...qs[idx],_qid:qid,_oidx:idx,_from:meta?meta.title:'?'})});
   }
@@ -530,6 +555,7 @@ async function startSpecial(type){
 }
 
 async function startToeicCards(resume){
+  if(!canAccess('__toeic')){alert('이 문제집 권한이 없습니다');return}
   const allQs=await loadQuizQ('__toeic');
   if(!allQs.length){alert('단어장 로드 실패');return}
   S.cardsQuizId='__toeic';S.cardsTitle='토익 필수 단어 1011';S.cardsFlipped=false;S.cardsKnow=new Set();S.cardsDontKnow=new Set();
@@ -549,6 +575,7 @@ async function startToeicCards(resume){
 }
 
 async function startToeicStarCards(){
+  if(!canAccess('__toeic')){alert('이 문제집 권한이 없습니다');return}
   const st=uToeicStars();
   const starredIdx=Object.keys(st).map(k=>+k);
   if(!starredIdx.length){alert('별표한 단어가 없습니다');return}
@@ -667,7 +694,7 @@ function bindQuiz(){
 
 // ═══ CARDS MODE ═══
 async function startCards(qid, deckOverride){
-  const meta=quizListLocal().find(q=>q.id===qid);if(!meta)return;
+  const meta=userQuizList().find(q=>q.id===qid);if(!meta){alert('이 문제집 권한이 없습니다');return}
   const questions=deckOverride||(await loadQuizQ(qid));
   if(!questions.length){alert('문제를 불러올 수 없습니다');return}
   S.cardsQuizId=qid;S.cardsTitle=meta.title;
