@@ -72,11 +72,40 @@ const LC={
 let currentUser=LC.get('currentUser')||null;
 
 // ═══ DATA LAYER ═══
+// 멤버 목록은 서버(Firestore)가 원본. 이 기기 캐시는 표시용.
+let MEMBERS_SYNC={ok:null,at:0,err:''};
+function midOf(m){return m.id||m.name}
+async function fetchMembersServer(){
+  const s=await db.collection('app').doc('members').get({source:'server'});
+  return (s.exists&&Array.isArray(s.data().list))?s.data().list:null;
+}
 async function loadMembers(){
-  try{const s=await db.collection('app').doc('members').get();if(s.exists&&s.data().list){LC.set('members',s.data().list);return s.data().list}}catch(e){console.warn(e)}
+  try{
+    const server=await fetchMembersServer();
+    const local=LC.get('members')||[];
+    if(server===null){MEMBERS_SYNC={ok:true,at:Date.now(),err:''};return local}
+    // 이 기기에만 있고 서버엔 없는 멤버는 버리지 않고 따로 보관 → 관리자 화면에서 합치기 가능
+    const ids=new Set(server.map(midOf));
+    const onlyLocal=local.filter(m=>!ids.has(midOf(m)));
+    if(onlyLocal.length){
+      const prev=LC.get('members_unsynced')||[],pids=new Set(prev.map(midOf));
+      LC.set('members_unsynced',[...prev,...onlyLocal.filter(m=>!pids.has(midOf(m)))]);
+    }
+    LC.set('members',server);MEMBERS_SYNC={ok:true,at:Date.now(),err:''};return server;
+  }catch(e){console.warn(e);MEMBERS_SYNC={ok:false,at:Date.now(),err:e.message||String(e)}}
   return LC.get('members')||[];
 }
-async function saveMembers(m){LC.set('members',m);try{await db.collection('app').doc('members').set({list:m})}catch(e){console.warn(e)}}
+// 서버의 최신 목록을 받아 수정한 뒤 저장. 실패하면 예외 → 화면에 알림
+async function mutateMembers(fn){
+  const server=await fetchMembersServer();
+  const list=server===null?(LC.get('members')||[]):server;
+  fn(list);
+  await db.collection('app').doc('members').set({list,updatedAt:Date.now()});
+  LC.set('members',list);MEMBERS_SYNC={ok:true,at:Date.now(),err:''};
+  return list;
+}
+async function saveMembers(m){LC.set('members',m);await db.collection('app').doc('members').set({list:m,updatedAt:Date.now()})}
+function syncFail(e){alert('❌ 서버 저장 실패 — 아무것도 바뀌지 않았습니다.\n인터넷 연결을 확인하고 다시 시도하세요.\n('+(e&&e.message||e)+')')}
 function membersLocal(){return LC.get('members')||[]}
 // ═══ 문제집 권한 ═══
 // access 배열이 있으면 그 문제집만, 없으면(기존 멤버) RESTRICTED를 뺀 전부
@@ -258,10 +287,9 @@ function bindAuth(){
     if(!id||!pw){err.textContent='아이디와 비밀번호를 입력하세요';err.style.display='block';return}
     const btn=$('#login-btn');btn.disabled=true;btn.textContent='로그인 중...';
     // 캐시가 비어있으면 Firestore에서 다시 시도
-    let ms=membersLocal();
-    if(!ms.length){try{ms=await loadMembers()}catch(e){}}
+    let ms=membersLocal(),m=ms.find(x=>midOf(x)===id);
+    if(!m||m.pw!==pw){try{ms=await loadMembers();m=ms.find(x=>midOf(x)===id)}catch(e){}}
     btn.disabled=false;btn.textContent='로그인';
-    const m=ms.find(x=>(x.id||x.name)===id);
     if(!m){err.textContent='존재하지 않는 아이디입니다';err.style.display='block';return}
     if(m.pw!==pw){err.textContent='비밀번호가 틀렸습니다';err.style.display='block';return}
     currentUser=id;LC.set('currentUser',currentUser);
@@ -270,11 +298,11 @@ function bindAuth(){
   $('#login-btn').onclick=doLogin;
   $('#login-pw').onkeydown=e=>{if(e.key==='Enter')doLogin()};
   $('#login-id').onkeydown=e=>{if(e.key==='Enter')$('#login-pw').focus()};
-  $('#btn-admin').onclick=()=>{$('#admin-modal').style.display='block';$('#admin-pw').value='';$('#admin-err').style.display='none';setTimeout(()=>$('#admin-pw').focus(),100)};
+  $('#btn-admin').onclick=()=>{$('#admin-modal').style.display='block';$('#admin-pw').value='';$('#admin-err').style.display='none';setTimeout(()=>{const e=$('#admin-pw');if(e)e.focus()},100)};
   $('#admin-cancel').onclick=()=>{$('#admin-modal').style.display='none'};
   $('#admin-go').onclick=()=>{
     const pw=$('#admin-pw').value.trim();
-    if(pw===ADMIN_KEY||pw==='admin'){$('#admin-modal').style.display='none';S.screen='admin';R()}
+    if(pw===ADMIN_KEY||pw==='admin'){const g=$('#admin-go');g.disabled=true;g.textContent='서버에서 불러오는 중...';(async()=>{await loadMembers();await loadQuizList();S.screen='admin';R()})()}
     else{$('#admin-err').textContent='비밀번호 오류 (입력: '+pw.length+'자)';$('#admin-err').style.display='block'}
   };
   $('#admin-pw').onkeydown=e=>{if(e.key==='Enter')$('#admin-go').click()};
@@ -307,6 +335,13 @@ function adminHTML(){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <h2 style="font-size:20px;font-weight:900">🔧 관리자</h2>
       <button id="adm-back" class="btn bgh" style="padding:8px 14px;font-size:12px">← 돌아가기</button></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:10px 12px;border-radius:12px;font-size:12px;font-weight:600;${MEMBERS_SYNC.ok?'background:var(--okm);color:var(--ok)':'background:var(--badm);color:var(--bad)'}">
+      <span style="flex:1">${MEMBERS_SYNC.ok?'☁️ 서버와 동기화됨 · '+new Date(MEMBERS_SYNC.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'⚠ 서버 연결 실패 — 아래는 이 기기에 저장된 예전 목록일 수 있어요. 수정하지 말고 새로고침하세요.'}</span>
+      <button id="adm-refresh" class="btn bgh" style="padding:6px 10px;font-size:11px">🔄 새로고침</button></div>
+    ${(LC.get('members_unsynced')||[]).length?`<div style="margin-bottom:14px;padding:12px;border-radius:12px;background:var(--warnm);border:1px solid var(--warn);font-size:12px">
+      <div style="font-weight:800;color:var(--warn);margin-bottom:6px">⚠ 이 기기에만 있고 서버에는 없는 멤버 ${(LC.get('members_unsynced')||[]).length}명</div>
+      <div style="color:var(--t2);margin-bottom:8px">${(LC.get('members_unsynced')||[]).map(m=>midOf(m)).join(', ')}</div>
+      <div style="display:flex;gap:6px"><button id="uns-merge" class="btn bp" style="flex:1;padding:8px;font-size:12px">서버에 합치기</button><button id="uns-drop" class="btn bgh" style="flex:1;padding:8px;font-size:12px">버리기</button></div></div>`:''}
     <div style="margin-bottom:20px">
       <div style="font-weight:700;font-size:14px;margin-bottom:10px">👥 멤버 관리 (${members.length}명)</div>
       <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">${mHTML}</div>
@@ -346,18 +381,27 @@ function bindAdmin(){
   $('#add-member').onclick=async()=>{
     const id=$('#new-id').value.trim(),pw=$('#new-pw').value.trim();
     if(!id||!pw){alert('아이디와 비밀번호 모두 입력하세요');return}
-    const ms=membersLocal();if(ms.find(m=>m.id===id)){alert('이미 존재하는 아이디');return}
-    ms.push({id,pw});await saveMembers(ms);R();
+    try{await mutateMembers(l=>{if(l.find(m=>midOf(m)===id))throw new Error('이미 존재하는 아이디');l.push({id,pw})});R()}
+    catch(e){if(e.message==='이미 존재하는 아이디')alert(e.message);else syncFail(e)}
   };
   $$('.perm-m').forEach(b=>{b.onclick=()=>{const p=$('#perm-'+b.dataset.idx);p.style.display=p.style.display==='none'?'block':'none'}});
   $$('.perm-all').forEach(b=>{b.onclick=()=>{$$('.perm-cb-'+b.dataset.idx).forEach(c=>{c.checked=b.dataset.v==='1'})}});
   $$('.perm-save').forEach(b=>{b.onclick=async()=>{
-    const idx=+b.dataset.idx,ms=membersLocal();
-    ms[idx].access=[...$$('.perm-cb-'+idx)].filter(c=>c.checked).map(c=>c.value);
+    const idx=+b.dataset.idx,id=midOf(membersLocal()[idx]);
+    const access=[...$$('.perm-cb-'+idx)].filter(c=>c.checked).map(c=>c.value);
     b.disabled=true;b.textContent='저장 중...';
-    await saveMembers(ms);alert((ms[idx].id||ms[idx].name)+' 권한 저장 완료 ('+ms[idx].access.length+'개 문제집)');R();
+    try{await mutateMembers(l=>{const m=l.find(x=>midOf(x)===id);if(!m)throw new Error(id+' 멤버가 서버에 없습니다');m.access=access});
+      alert(id+' 권한 저장 완료 ('+access.length+'개 문제집)');R()}
+    catch(e){syncFail(e);b.disabled=false;b.textContent='💾 권한 저장'}
   }});
-  $$('.del-m').forEach(b=>{b.onclick=async()=>{const ms=membersLocal(),idx=+b.dataset.idx;if(!confirm(ms[idx].id+' 삭제?'))return;ms.splice(idx,1);await saveMembers(ms);R()}});
+  $$('.del-m').forEach(b=>{b.onclick=async()=>{const id=midOf(membersLocal()[+b.dataset.idx]);if(!confirm(id+' 삭제?'))return;
+    try{await mutateMembers(l=>{const i=l.findIndex(x=>midOf(x)===id);if(i>=0)l.splice(i,1)});R()}catch(e){syncFail(e)}}});
+  $('#adm-refresh').onclick=async()=>{const b=$('#adm-refresh');b.disabled=true;b.textContent='불러오는 중...';await loadMembers();await loadQuizList();R()};
+  const um=$('#uns-merge');if(um)um.onclick=async()=>{
+    const uns=LC.get('members_unsynced')||[];um.disabled=true;um.textContent='합치는 중...';
+    try{await mutateMembers(l=>{const ids=new Set(l.map(midOf));uns.forEach(m=>{if(!ids.has(midOf(m)))l.push(m)})});LC.del('members_unsynced');alert(uns.length+'명을 서버에 합쳤습니다');R()}
+    catch(e){syncFail(e);um.disabled=false;um.textContent='서버에 합치기'}};
+  const ud=$('#uns-drop');if(ud)ud.onclick=()=>{if(confirm('이 기기에만 있던 멤버 목록을 버릴까요?')){LC.del('members_unsynced');R()}};
   $('#adm-save-quiz').onclick=async()=>{
     const jerr=$('#adm-jerr'),sel=$('#quiz-select').value;
     jerr.style.display='none';
@@ -508,7 +552,7 @@ function bindHome(){
     if(cur!==me.pw){err.textContent='현재 비밀번호가 틀렸습니다';err.style.display='block';return}
     if(!nw||nw.length<2){err.textContent='새 비밀번호를 2자 이상 입력하세요';err.style.display='block';return}
     if(nw!==cf){err.textContent='새 비밀번호가 일치하지 않습니다';err.style.display='block';return}
-    me.pw=nw;await saveMembers(ms);
+    try{await mutateMembers(l=>{const x=l.find(m=>midOf(m)===currentUser);if(!x)throw new Error('서버에 회원 정보가 없습니다');x.pw=nw})}catch(e){syncFail(e);return}
     alert('비밀번호가 변경되었습니다!');$('#pw-change').style.display='none';
   };
   const ch=$('#clrh');if(ch)ch.onclick=async()=>{if(confirm('기록 삭제?')){await saveU('hist',[]);R()}};
