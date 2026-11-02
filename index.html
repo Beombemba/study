@@ -464,7 +464,7 @@ function bindAdmin(){
 // ═══ HOME ═══
 function ch737HTML(sessions,history){
   const open=!!S.open737;
-  const rows=[...C737.map((c,k)=>({id:'__737_'+c[0],t:(k+1)+'. '+c[1]})),{id:'__737_NEW',t:'🆕 새로 추가된 문제'},{id:'__737_CAU',t:'⚠ 주의 표시 문제 (확인 필요)'}];
+  const rows=[...C737.map((c,k)=>({id:'__737_'+c[0],t:(k+1)+'. '+c[1]})),{id:'__737_CAU',t:'⚠ 주의 표시 문제 (확인 필요)'}];
   const body=open?rows.map(r=>{const n=sub737Q(r.id).length;if(!n)return'';
     const ss=sessions[r.id],prog=ss?Math.round((ss.checked||[]).length/n*100):0;
     const past=history.filter(h=>h.quizId===r.id);const best=past.length?Math.max(...past.map(h=>Math.round(h.correct/h.total*100))):null;
@@ -474,7 +474,7 @@ function ch737HTML(sessions,history){
       ${ss?`<button class="btn bgh" data-resume="${r.id}" style="padding:6px 9px;font-size:11px">▶ 이어서</button>`:''}
       <button class="btn bgh" data-start="${r.id}" style="padding:6px 9px;font-size:11px">${ss?'↺':'▶ 풀기'}</button>
       <button class="btn bgh" data-cards="${r.id}" style="padding:6px 9px;font-size:11px;background:var(--warnm);border-color:var(--warn);color:var(--warn)">📇</button></div>`}).join(''):'';
-  return`<div style="padding:0 12px 10px"><button class="btn bgh" id="tg737" style="width:100%;padding:8px;font-size:12px;font-weight:700">📂 단원별로 풀기 (${C737.length}단원 + 신규·주의) ${open?'▲':'▼'}</button>${open?`<div style="margin-top:6px">${body}</div>`:''}</div>`;
+  return`<div style="padding:0 12px 10px"><button class="btn bgh" id="tg737" style="width:100%;padding:8px;font-size:12px;font-weight:700">📂 단원별로 풀기 (${C737.length}단원 + 주의) ${open?'▲':'▼'}</button>${open?`<div style="margin-top:6px">${body}</div>`:''}</div>`;
 }
 function homeHTML(){
   const quizzes=userQuizList(),history=uHist(),sessions=uSess(),wrongs=uWrongs(),stars=uStars();
