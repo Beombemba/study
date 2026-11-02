@@ -336,7 +336,7 @@ function adminHTML(){
       <h2 style="font-size:20px;font-weight:900">🔧 관리자</h2>
       <button id="adm-back" class="btn bgh" style="padding:8px 14px;font-size:12px">← 돌아가기</button></div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:10px 12px;border-radius:12px;font-size:12px;font-weight:600;${MEMBERS_SYNC.ok?'background:var(--okm);color:var(--ok)':'background:var(--badm);color:var(--bad)'}">
-      <span style="flex:1">${MEMBERS_SYNC.ok?'☁️ 서버와 동기화됨 · '+new Date(MEMBERS_SYNC.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'⚠ 서버 연결 실패 — 아래는 이 기기에 저장된 예전 목록일 수 있어요. 수정하지 말고 새로고침하세요.'}</span>
+      <span style="flex:1">${MEMBERS_SYNC.ok?'☁️ 서버와 동기화됨 · '+new Date(MEMBERS_SYNC.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'⚠ 서버 연결 실패 — 아래는 이 기기에 저장된 예전 목록일 수 있어요. 수정하지 말고 새로고침하세요.<div style="margin-top:6px;font-weight:500;font-size:11px;opacity:.85;word-break:break-all">오류 내용: '+(MEMBERS_SYNC.err||'알 수 없음').replace(/</g,'&lt;')+'</div>'}</span>
       <button id="adm-refresh" class="btn bgh" style="padding:6px 10px;font-size:11px">🔄 새로고침</button></div>
     ${(LC.get('members_unsynced')||[]).length?`<div style="margin-bottom:14px;padding:12px;border-radius:12px;background:var(--warnm);border:1px solid var(--warn);font-size:12px">
       <div style="font-weight:800;color:var(--warn);margin-bottom:6px">⚠ 이 기기에만 있고 서버에는 없는 멤버 ${(LC.get('members_unsynced')||[]).length}명</div>
