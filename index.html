@@ -489,12 +489,13 @@ function makeMock737(){
   let pick=[];al.forEach(a=>{pick=pick.concat(shuffle(by[a.c]).slice(0,a.n))});
   return shuffle(pick);
 }
-function mockList(){const k=LC.get(mockKey());return Array.isArray(k)&&k.length===MOCK_N&&k.every(i=>QD_737[i])?k:null}
-async function startMock(resume){
+function mockList(){let k=LC.get(mockKey());if(Array.isArray(k))k={idx:k,mode:'exam'};return k&&Array.isArray(k.idx)&&k.idx.length===MOCK_N&&k.idx.every(i=>QD_737[i])?k:null}
+async function startMock(resume,mode){
   if(!canAccess('__737')){alert('이 문제집 권한이 없습니다');return}
-  let idx=resume?mockList():null,ss=resume?loadSess('__737_MOCK'):null;
-  if(!idx||!ss){idx=makeMock737();LC.set(mockKey(),idx);await clearSess('__737_MOCK');ss=null}
-  S.quizId='__737_MOCK';S.mode='exam';S.cur=ss?(ss.cur||0):0;S.answers=ss?(ss.answers||{}):{};S.marks=new Set();S.checked=new Set();S.timer=ss?(ss.timer||0):0;S.shuffleOrder=null;
+  let m=resume?mockList():null,ss=resume?loadSess('__737_MOCK'):null;
+  if(!m||!ss){m={idx:makeMock737(),mode:mode==='exam'?'exam':'mock'};LC.set(mockKey(),m);await clearSess('__737_MOCK');ss=null}
+  const idx=m.idx;
+  S.quizId='__737_MOCK';S.mode=m.mode;S.cur=ss?(ss.cur||0):0;S.answers=ss?(ss.answers||{}):{};S.marks=new Set();S.checked=new Set(m.mode==='mock'&&ss?(ss.checked||[]):[]);S.timer=ss?(ss.timer||0):0;S.shuffleOrder=null;
   S.quiz={title:'📝 737 모의고사',questions:idx.map(i=>({_qid:'__737',_oidx:i,...QD_737[i]}))};
   S.screen='quiz';R();startTimer();
 }
@@ -504,7 +505,8 @@ function mockHomeHTML(sessions,history){
   return`<div style="padding:0 12px 8px"><div style="display:flex;gap:6px">
     ${ss?`<button class="btn bgh" id="mock-resume" style="flex:1;padding:9px;font-size:12px;font-weight:800">▶ 모의고사 이어서 (${Object.keys(ss.answers||{}).length}/${MOCK_N})</button>`:''}
     <button class="btn bp" id="mock-new" style="flex:1;padding:9px;font-size:12px;font-weight:800">📝 모의고사 ${ss?'새로':''} (${MOCK_N}문제)</button></div>
-    <div style="color:var(--t3);font-size:11px;margin-top:4px;text-align:center">실제 시험처럼 ${MOCK_N}문제를 다 풀고 제출하면 채점 · ${MOCK_PASS}점 이상 합격${last?` · 최근 점수 ${last}`:''}</div></div>`;
+    <div style="color:var(--t3);font-size:11px;margin-top:4px;text-align:center">${MOCK_N}문제 · 답 고르면 바로 채점 · ${MOCK_PASS}점 이상 합격${last?` · 최근 점수 ${last}`:''}
+    <br><button id="mock-exam" style="background:none;border:none;color:var(--t2);font-size:11px;text-decoration:underline;padding:2px">실제 시험처럼 풀기 (다 풀고 제출 후 채점)</button></div></div>`;
 }
 function examHTML(){
   const qs=S.quiz.questions,q=qs[S.cur],total=qs.length;
@@ -552,7 +554,7 @@ function bindExam(){
 }
 async function submitMock(){
   const qs=S.quiz.questions,un=qs.filter((_,i)=>S.answers[i]===undefined).length;
-  if(!confirm(un?`아직 안 푼 문제가 ${un}개 있어요 (오답 처리됩니다).\n그래도 제출할까요?`:'제출하고 채점할까요?'))return;
+  if(un){if(!confirm(`아직 안 푼 문제가 ${un}개 있어요 (오답 처리됩니다).\n그래도 끝낼까요?`))return}else if(S.mode==='exam'&&!confirm('제출하고 채점할까요?'))return;
   stopTimer();
   let correct=0;const wr=uWrongs(),by={};
   qs.forEach((q,i)=>{const k=q._qid+'_'+q._oidx,ok=S.answers[i]===q.answer;if(ok){correct++;delete wr[k]}else wr[k]=true;
@@ -589,7 +591,7 @@ function bindMockRes(){
     S.answers=ans;S.checked=new Set(qs.map((_,j)=>j));S.cur=0;S.mode='examReview';S.screen='quiz';R()};
   const w=$('#mr-wrong');if(w)w.onclick=()=>rv(true);
   $('#mr-all').onclick=()=>rv(false);
-  $('#mr-new').onclick=()=>{resetS();startMock(false)};
+  $('#mr-new').onclick=()=>{resetS();startMock(false,'mock')};
   $('#mr-home').onclick=()=>{resetS();S.screen='home';R()};
 }
 function homeHTML(){
@@ -698,7 +700,8 @@ function bindHome(){
   };
   const ch=$('#clrh');if(ch)ch.onclick=async()=>{if(confirm('기록 삭제?')){await saveU('hist',[]);R()}};
   const t7=$('#tg737');if(t7)t7.onclick=e=>{e.stopPropagation();S.open737=!S.open737;R()};
-  const mn=$('#mock-new');if(mn)mn.onclick=e=>{e.stopPropagation();if(!loadSess('__737_MOCK')||confirm('진행 중인 모의고사를 버리고 새로 시작할까요?'))startMock(false)};
+  const mn=$('#mock-new');if(mn)mn.onclick=e=>{e.stopPropagation();if(!loadSess('__737_MOCK')||confirm('진행 중인 모의고사를 버리고 새로 시작할까요?'))startMock(false,'mock')};
+  const me=$('#mock-exam');if(me)me.onclick=e=>{e.stopPropagation();if(!loadSess('__737_MOCK')||confirm('진행 중인 모의고사를 버리고 새로 시작할까요?'))startMock(false,'exam')};
   const mr=$('#mock-resume');if(mr)mr.onclick=e=>{e.stopPropagation();startMock(true)};
   $$('[data-start]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startQuiz(el.dataset.start,false)}});
   $$('[data-resume]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startQuiz(el.dataset.resume,true)}});
@@ -803,8 +806,8 @@ function quizHTML(){
   const isLast=S.cur===total-1,allDone=S.checked.size===total;
   let bottomBtn;
   if(isChecked&&!isLast)bottomBtn=`<button id="bnxt" class="btn bp" style="flex:1;font-size:13px">다음 문제 ▶</button>`;
-  else if(allDone)bottomBtn=`<button id="bfinish" class="btn bg" style="flex:1;font-size:13px">🏠 완료 (${correct}/${total})</button>`;
-  else if(isChecked&&isLast)bottomBtn=`<button id="bfinish" class="btn bg" style="flex:1;font-size:13px">🏠 완료 (${correct}/${S.checked.size})</button>`;
+  else if(allDone)bottomBtn=`<button id="bfinish" class="btn bg" style="flex:1;font-size:13px">${S.mode==='mock'?'📊 결과 보기':'🏠 완료'} (${correct}/${total})</button>`;
+  else if(isChecked&&isLast)bottomBtn=`<button id="bfinish" class="btn bg" style="flex:1;font-size:13px">${S.mode==='mock'?'📊 결과 보기':'🏠 완료'} (${correct}/${S.checked.size})</button>`;
   else bottomBtn=`<div style="flex:1;text-align:center;color:var(--t3);font-size:12px">답을 선택하세요</div>`;
 
   const navItems=S.quiz.questions.map((qi,i)=>{
@@ -860,6 +863,7 @@ function bindQuiz(){
   const bf=$('#bfinish');if(bf)bf.onclick=async()=>{
     stopTimer();
     if(S.mode==='examReview'){resetS();S.screen='home';R();return}
+    if(S.mode==='mock'){submitMock();return}
     const qs=S.quiz.questions;let correct=0;const wi=[];
     qs.forEach((q,i)=>{if(S.answers[i]===q.answer)correct++;else wi.push(q._oidx!==undefined?q._oidx:i)});
     const h=uHist();
