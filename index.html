@@ -552,8 +552,12 @@ function ch737HTML(sessions,history){
 // ═══ 737 모의고사 (실제 시험: 40문제·4지선다, 70점 이상 합격) ═══
 const MOCK_N=40,MOCK_PASS=70;
 function mockKey(){return'mock737_'+currentUser}
+// 애매한 문제(⚠ cau: 정답이 확실하지 않거나 원본에 정답 표시가 없어 답을 정해 넣은 문제)는 기본으로 모의고사에서 뺀다
+function mockCauKey(){return'mock737cau_'+currentUser}
+function mockInclCau(){return LC.get(mockCauKey())===true}
 function makeMock737(){
-  const by={};let tot=0;QD_737.forEach((q,i)=>{if(q.options.length<2||q.hid)return;tot++;(by[q.ch]=by[q.ch]||[]).push(i)});
+  const inclCau=mockInclCau();
+  const by={};let tot=0;QD_737.forEach((q,i)=>{if(q.options.length<2||q.hid||(q.cau&&!inclCau))return;tot++;(by[q.ch]=by[q.ch]||[]).push(i)});
   const al=Object.keys(by).map(c=>{const x=by[c].length*MOCK_N/tot;return{c,n:Math.floor(x),r:x-Math.floor(x)}});
   let left=MOCK_N-al.reduce((a,b)=>a+b.n,0);
   shuffle(al).sort((a,b)=>b.r-a.r).forEach(a=>{if(left>0){a.n++;left--}});
@@ -577,7 +581,8 @@ function mockHomeHTML(sessions,history){
     ${ss?`<button class="btn bgh" id="mock-resume" style="flex:1;padding:9px;font-size:12px;font-weight:800">▶ 모의고사 이어서 (${Object.keys(ss.answers||{}).length}/${MOCK_N})</button>`:''}
     <button class="btn bp" id="mock-new" style="flex:1;padding:9px;font-size:12px;font-weight:800">📝 모의고사 ${ss?'새로':''} (${MOCK_N}문제)</button></div>
     <div style="color:var(--t3);font-size:11px;margin-top:4px;text-align:center">${MOCK_N}문제 · 답 고르면 바로 채점 · ${MOCK_PASS}점 이상 합격${last?` · 최근 점수 ${last}`:''}
-    <br><button id="mock-exam" style="background:none;border:none;color:var(--t2);font-size:11px;text-decoration:underline;padding:2px">실제 시험처럼 풀기 (다 풀고 제출 후 채점)</button></div></div>`;
+    <br><button id="mock-exam" style="background:none;border:none;color:var(--t2);font-size:11px;text-decoration:underline;padding:2px">실제 시험처럼 풀기 (다 풀고 제출 후 채점)</button>
+    <br><label id="mock-cau-lb" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-top:4px;color:var(--t2)"><input type="checkbox" id="mock-cau" ${mockInclCau()?'checked':''}> ⚠ 애매한 문제도 포함 (${QD_737.filter(q=>q.cau&&!q.hid).length}문제 · 정답 불확실/원본 정답 표시 없음)</label></div></div>`;
 }
 function examHTML(){
   const qs=S.quiz.questions,q=qs[S.cur],total=qs.length;
@@ -820,6 +825,8 @@ function bindHome(){
   const ch=$('#clrh');if(ch)ch.onclick=async()=>{if(confirm('기록 삭제?')){await saveU('hist',[]);R()}};
   const t7=$('#tg737');if(t7)t7.onclick=e=>{e.stopPropagation();S.open737=!S.open737;R()};
   const mn=$('#mock-new');if(mn)mn.onclick=e=>{e.stopPropagation();if(!loadSess('__737_MOCK')||confirm('진행 중인 모의고사를 버리고 새로 시작할까요?'))startMock(false,'mock')};
+  const mcl=$('#mock-cau-lb');if(mcl)mcl.onclick=e=>e.stopPropagation();
+  const mc=$('#mock-cau');if(mc)mc.onchange=()=>LC.set(mockCauKey(),mc.checked);
   const me=$('#mock-exam');if(me)me.onclick=e=>{e.stopPropagation();if(!loadSess('__737_MOCK')||confirm('진행 중인 모의고사를 버리고 새로 시작할까요?'))startMock(false,'exam')};
   const mr=$('#mock-resume');if(mr)mr.onclick=e=>{e.stopPropagation();startMock(true)};
   $$('[data-start]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startQuiz(el.dataset.start,false)}});
