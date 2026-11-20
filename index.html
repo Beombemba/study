@@ -222,7 +222,8 @@ async function migrateToeicStars(){
 async function saveU(field,val){
   LC.set('u_'+currentUser+'_'+field,val);
   const key={hist:'history',sess:'sessions',wrongs:'wrongs',stars:'stars'}[field]||field;
-  await saveUserField(currentUser,key,val);
+  // 화면은 서버 응답을 기다리지 않는다. 서버가 느리거나 실패해도(할당량 초과 등) 버튼이 멈추지 않게.
+  saveUserField(currentUser,key,val).catch(e=>console.warn('save failed',key,e&&e.code));
 }
 // 필드 전체를 교체한다. set(merge)는 map 안의 키를 합치기만 해서, 별표 해제·오답 삭제가 서버에 반영되지 않았다.
 async function saveUserField(uid,key,val){
