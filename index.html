@@ -96,16 +96,18 @@ async function loadMembers(){
   return LC.get('members')||[];
 }
 // 서버의 최신 목록을 받아 수정한 뒤 저장. 실패하면 예외 → 화면에 알림
+// 서버가 응답하지 않으면(무료 사용량 초과 시 SDK가 끝없이 재시도) 15초 뒤 실패로 처리한다.
+function withTimeout(pr,ms){return Promise.race([pr,new Promise((_,rej)=>setTimeout(()=>rej(new Error('서버 응답 없음 ('+Math.round(ms/1000)+'초)')),ms))])}
 async function mutateMembers(fn){
-  const server=await fetchMembersServer();
+  const server=await withTimeout(fetchMembersServer(),15000);
   const list=server===null?(LC.get('members')||[]):server;
   fn(list);
-  await db.collection('app').doc('members').set({list,updatedAt:Date.now()});
+  await withTimeout(db.collection('app').doc('members').set({list,updatedAt:Date.now()}),15000);
   LC.set('members',list);MEMBERS_SYNC={ok:true,at:Date.now(),err:''};
   return list;
 }
 async function saveMembers(m){LC.set('members',m);await db.collection('app').doc('members').set({list:m,updatedAt:Date.now()})}
-function syncFail(e){alert('❌ 서버 저장 실패 — 아무것도 바뀌지 않았습니다.\n인터넷 연결을 확인하고 다시 시도하세요.\n('+(e&&e.message||e)+')')}
+function syncFail(e){const m=(e&&e.message||String(e));alert('❌ 서버 저장 실패 — 아무것도 바뀌지 않았습니다.\n'+(/응답 없음|exhausted|quota/i.test(m)?'서버가 응답하지 않습니다. 오늘 무료 사용량을 넘었을 수 있어요(매일 오후 5시쯤 초기화). 그 뒤에 다시 시도하세요.':'인터넷 연결을 확인하고 다시 시도하세요.')+'\n('+m+')')}
 function membersLocal(){return LC.get('members')||[]}
 // ═══ 문제집 권한 ═══
 // access 배열이 있으면 그 문제집만, 없으면(기존 멤버) RESTRICTED를 뺀 전부
@@ -219,12 +221,26 @@ async function migrateToeicStars(){
   await saveU('toeicStars',ts);
 }
 
+// 화면은 서버 응답을 기다리지 않는다. 바뀐 필드를 모아 4초에 한 번 문서 1회 쓰기로 보낸다
+// (문제 하나 풀 때마다 3~4번 쓰던 것을 줄여 무료 사용량 초과를 막는다).
+const PEND={uid:null,data:{},timer:null,busy:false};
 async function saveU(field,val){
   LC.set('u_'+currentUser+'_'+field,val);
   const key={hist:'history',sess:'sessions',wrongs:'wrongs',stars:'stars'}[field]||field;
-  // 화면은 서버 응답을 기다리지 않는다. 서버가 느리거나 실패해도(할당량 초과 등) 버튼이 멈추지 않게.
-  saveUserField(currentUser,key,val).catch(e=>console.warn('save failed',key,e&&e.code));
+  if(PEND.uid&&PEND.uid!==currentUser)flushU();
+  PEND.uid=currentUser;PEND.data[key]=val;
+  if(!PEND.timer)PEND.timer=setTimeout(flushU,4000);
 }
+function flushU(){
+  clearTimeout(PEND.timer);PEND.timer=null;
+  if(PEND.busy||!PEND.uid||!Object.keys(PEND.data).length)return;
+  const uid=PEND.uid,data=PEND.data;PEND.data={};PEND.busy=true;
+  const ref=db.collection('users').doc(uid);
+  ref.update(data).catch(()=>ref.set(data,{merge:true})).catch(e=>console.warn('save failed',e&&e.code))
+    .finally(()=>{PEND.busy=false;if(Object.keys(PEND.data).length&&!PEND.timer)PEND.timer=setTimeout(flushU,4000)});
+}
+addEventListener('pagehide',()=>flushU());
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushU()});
 // 필드 전체를 교체한다. set(merge)는 map 안의 키를 합치기만 해서, 별표 해제·오답 삭제가 서버에 반영되지 않았다.
 async function saveUserField(uid,key,val){
   const ref=db.collection('users').doc(uid);
@@ -447,7 +463,7 @@ async function udRender(){
     await udSave(f,{},fname+' 전체 삭제 완료')};
 }
 async function udSave(f,o,msg){
-  try{await saveUserField(ADM_UD.uid,f,o);ADM_UD.data[f]=o;alert(msg);await udRender()}
+  try{await withTimeout(saveUserField(ADM_UD.uid,f,o),15000);ADM_UD.data[f]=o;alert(msg);await udRender()}
   catch(e){alert('삭제 실패: '+e.message)}
 }
 function bindAdmin(){
@@ -809,7 +825,7 @@ function homeHTML(){
 }
 function bindHome(){
   $$('[data-ht]').forEach(t=>{t.onclick=()=>{S.homeTab=t.dataset.ht;R()}});
-  $('#logout').onclick=()=>{currentUser=null;LC.del('currentUser');resetS();S.screen='auth';R()};
+  $('#logout').onclick=()=>{flushU();currentUser=null;LC.del('currentUser');resetS();S.screen='auth';R()};
   $('#btn-chpw').onclick=()=>{$('#pw-change').style.display='block';$('#pw-cur').value='';$('#pw-new').value='';$('#pw-confirm').value='';$('#pw-err').style.display='none'};
   $('#pw-cancel').onclick=()=>{$('#pw-change').style.display='none'};
   $('#pw-save').onclick=async()=>{
