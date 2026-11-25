@@ -281,6 +281,7 @@ function R(){
       case'admin':a.innerHTML=adminHTML();bindAdmin();break;
       case'home':a.innerHTML=homeHTML();bindHome();break;
       case'weak':weakHTML().then(h=>{a.innerHTML=h;bindWeak()});break;
+      case'search':a.innerHTML=searchHTML();bindSearch();break;
       case'quiz':if(S.mode==='exam'){a.innerHTML=examHTML();bindExam()}else{a.innerHTML=quizHTML();bindQuiz()}break;
       case'mockres':a.innerHTML=mockResHTML();bindMockRes();break;
       case'cards':a.innerHTML=cardsHTML();bindCards();break;
@@ -815,6 +816,7 @@ function homeHTML(){
       </div></div>
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <button id="btn-chpw" class="btn bgh" style="flex:1;padding:10px;font-size:12px">🔒 비밀번호 변경</button></div>
+    <button id="btn-search" class="btn bgh" style="width:100%;padding:13px;font-size:14px;font-weight:800;margin-bottom:10px;border:1.5px solid var(--pri);color:var(--pri);background:var(--prim)">🔍 족보 검색 <span style="font-weight:400;font-size:11px;color:var(--t2)">단어·구문으로 문제와 정답 찾기</span></button>
     ${specialHTML}
     ${vocabHTML?`<div style="margin-bottom:8px;font-size:12px;font-weight:700;color:var(--warn);letter-spacing:.05em">📖 단어장</div><div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">${vocabHTML}</div>`:''}
     <div style="margin-bottom:8px;font-size:12px;font-weight:700;color:var(--t3);letter-spacing:.05em">✈️ 항공 문제</div>
@@ -851,12 +853,88 @@ function bindHome(){
   $$('[data-resume]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startQuiz(el.dataset.resume,true)}});
   $('#btn-wrongs').onclick=()=>startSpecial('wrongs');
   $('#btn-stars').onclick=()=>startSpecial('stars');
+  $('#btn-search').onclick=openSearch;
   $('#btn-weak').onclick=()=>{S.weakMax=S.weakMax===undefined?null:S.weakMax;S.screen='weak';R()};
   $$('[data-cards]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startCards(el.dataset.cards)}});
   $$('[data-toeic-cards]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startToeicCards(false)}});
   $$('[data-toeic-resume]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startToeicCards(true)}});
   $$('[data-toeic-stars]').forEach(el=>{el.onclick=e=>{e.stopPropagation();startToeicStarCards()}});
 }
+
+// ═══ 족보 검색 (특정 단어·구문으로 문제 찾기) ═══
+// 띄어쓰기·대소문자·기호는 무시하고 비교. 여러 단어를 띄우면 모두 들어간 문제만.
+function srNorm(s){let n='',m=[];s=String(s||'');for(let i=0;i<s.length;i++){const c=s[i].normalize('NFKC').toLowerCase();for(const ch of c){if(/[0-9a-zㄱ-ㆎ가-힣Ͱ-Ͽ]/.test(ch)){n+=ch;m.push(i)}}}return{n,m}}
+function srPlain(h){const s=String(h||'');if(!/[<&]/.test(s))return s;const d=document.createElement('div');d.innerHTML=s;return d.textContent}
+function srEsc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function srHL(text,terms){
+  if(!terms.length)return srEsc(text);
+  const{n,m}=srNorm(text),on=new Uint8Array(text.length);
+  terms.forEach(t=>{let p=n.indexOf(t);while(p>=0){for(let k=m[p];k<=m[p+t.length-1];k++)on[k]=1;p=n.indexOf(t,p+1)}});
+  let out='',open=false;
+  for(let i=0;i<text.length;i++){if(on[i]&&!open){out+='<mark class="srm">';open=true}else if(!on[i]&&open){out+='</mark>';open=false}out+=srEsc(text[i])}
+  return out+(open?'</mark>':'');
+}
+function srScopes(){const l=userQuizList().filter(q=>q.id!=='__toeic');return[...l.filter(q=>q.id==='__tw'),...l.filter(q=>q.id!=='__tw')]}
+async function srLoad(ids){
+  S.srIdx=S.srIdx||{};
+  for(const qid of ids){if(S.srIdx[qid])continue;
+    let qs=[];try{qs=await loadQuizQ(qid)}catch(e){console.warn('search load',qid,e)}
+    const meta=quizListLocal().find(x=>x.id===qid);
+    S.srIdx[qid]=(qs||[]).map((q,i)=>{if(!q||q.hid)return null;
+      const qt=srPlain(q.question),os=(q.options||[]).map(srPlain),ans=q.options&&q.options.length?null:srPlain(q.answerText||'');
+      return{qid,i,from:meta?meta.title.replace(/\s*\(.*?문제\)\s*$/,''):qid,q:qt,o:os,a:q.answer,at:ans,ex:srPlain(q.explanation||''),
+        hay:[qt,...os,ans||''].map(x=>srNorm(x).n).join('#')}}).filter(Boolean);
+  }
+}
+function srIds(){const sc=srScopes().map(q=>q.id);return S.srScope==='all'?sc:sc.filter(id=>id===S.srScope)}
+function srRun(){
+  const box=$('#sr-res');if(!box)return;
+  const raw=($('#sr-q')||{}).value||'';S.srQ=raw;
+  const terms=raw.split(/\s+/).map(t=>srNorm(t).n).filter(Boolean);
+  if(!terms.length){box.innerHTML=`<div style="text-align:center;padding:36px 10px;color:var(--t3);font-size:13px;line-height:1.8">문제나 보기에 있는 단어를 입력하세요.<br><span style="font-size:11px">띄어쓰기·대소문자·기호는 무시해요 · 여러 단어는 띄워서 (예: <b>laser not correct</b>, <b>holdover 80kt</b>)</span></div>`;return}
+  const hits=[];srIds().forEach(id=>(S.srIdx[id]||[]).forEach(e=>{if(terms.every(t=>e.hay.includes(t)))hits.push(e)}));
+  const lim=S.srLim||40,onlyAns=!!S.srOnlyAns,multi=S.srScope==='all'&&srIds().length>1;
+  const card=e=>{
+    const opts=e.o.length?e.o.map((o,k)=>{const ok=k===e.a;if(onlyAns&&!ok&&!terms.some(t=>srNorm(o).n.includes(t)))return'';
+      return`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 9px;border-radius:9px;font-size:13px;line-height:1.55;${ok?'background:var(--okm);color:var(--ok);font-weight:700;border:1px solid var(--ok)':'color:var(--t2)'}"><span style="min-width:16px">${ok?'✓':String.fromCharCode(9312+k)}</span><span style="flex:1">${srHL(o,terms)}</span></div>`}).join('')
+      :`<div style="padding:6px 9px;border-radius:9px;font-size:13px;background:var(--okm);color:var(--ok);font-weight:700;border:1px solid var(--ok)">정답: ${srHL(e.at||'',terms)}</div>`;
+    const ex=e.ex?`<details style="margin-top:6px"><summary style="font-size:11px;color:var(--t3);cursor:pointer">해설·출처</summary><div style="font-size:12px;color:var(--t2);line-height:1.7;white-space:pre-wrap;margin-top:4px">${srEsc(e.ex)}</div></details>`:'';
+    return`<div style="background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px 13px">
+      ${multi?`<div style="font-size:10px;color:var(--pri);font-weight:800;margin-bottom:4px">${srEsc(e.from)}</div>`:''}
+      <div style="font-size:14px;font-weight:600;line-height:1.65;white-space:pre-wrap;word-break:keep-all;margin-bottom:8px">${srHL(e.q,terms)}</div>
+      <div style="display:flex;flex-direction:column;gap:4px">${opts}</div>${ex}</div>`};
+  box.innerHTML=`<div style="font-size:12px;color:var(--t2);margin:2px 2px 10px">${hits.length?`<b style="color:var(--pri)">${hits.length}</b>개 문제`:'일치하는 문제가 없어요'}</div>
+    <div style="display:flex;flex-direction:column;gap:10px">${hits.slice(0,lim).map(card).join('')}</div>
+    ${hits.length>lim?`<button id="sr-more" class="btn bgh" style="width:100%;margin-top:12px;padding:11px;font-size:13px">더 보기 (${hits.length-lim}개 남음)</button>`:''}`;
+  const mo=$('#sr-more');if(mo)mo.onclick=()=>{S.srLim=lim+40;srRun()};
+}
+function searchHTML(){
+  const sc=srScopes();
+  if(!S.srScope||(S.srScope!=='all'&&!sc.some(q=>q.id===S.srScope)))S.srScope=sc.some(q=>q.id==='__tw')?'__tw':'all';
+  const chip=(v,l)=>`<button class="sr-sc" data-v="${v}" style="white-space:nowrap;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid ${S.srScope===v?'var(--pri)':'var(--bd)'};background:${S.srScope===v?'var(--prim)':'var(--card)'};color:${S.srScope===v?'var(--pri)':'var(--t2)'}">${srEsc(l)}</button>`;
+  return`<style>.srm{background:rgba(245,183,49,.45);color:inherit;border-radius:3px;padding:0 1px}</style>
+  <div style="min-height:100dvh;max-width:760px;margin:0 auto">
+    <div style="position:sticky;top:0;z-index:10;background:var(--sf);border-bottom:1px solid var(--bd);padding:10px 14px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button id="sr-back" style="width:34px;height:34px;flex:none;border-radius:8px;background:var(--raised);border:1px solid var(--bd)">←</button>
+        <div style="flex:1;position:relative"><input id="sr-q" class="inp" type="text" enterkeyhint="search" autocomplete="off" placeholder="🔍 단어나 구문으로 문제 찾기" value="${srEsc(S.srQ||'')}" style="width:100%;padding-right:34px">
+          <button id="sr-x" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:26px;height:26px;border-radius:50%;background:var(--raised);color:var(--t2);font-size:13px;display:${S.srQ?'block':'none'}">✕</button></div></div>
+      <div style="display:flex;gap:6px;overflow-x:auto;margin-top:9px;padding-bottom:2px">${chip('all','전체')}${sc.map(q=>chip(q.id,q.title.replace(/\s*\(.*?문제\)\s*$/,''))).join('')}</div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--t2)"><input id="sr-oa" type="checkbox" ${S.srOnlyAns?'checked':''}> 정답 보기만 표시</label></div>
+    <div id="sr-res" style="padding:12px 14px 40px"><div style="text-align:center;padding:30px;color:var(--t3)"><span class="loader"></span></div></div></div>`;
+}
+function bindSearch(){
+  const inp=$('#sr-q'),x=$('#sr-x');let tm;
+  const go=()=>{S.srLim=40;x.style.display=inp.value?'block':'none';srRun()};
+  inp.oninput=()=>{clearTimeout(tm);tm=setTimeout(go,120)};
+  inp.onkeydown=e=>{if(e.key==='Enter'){clearTimeout(tm);go();inp.blur()}};
+  x.onclick=()=>{inp.value='';go();inp.focus()};
+  $('#sr-back').onclick=()=>{S.screen='home';R()};
+  $('#sr-oa').onchange=e=>{S.srOnlyAns=e.target.checked;LC.set('srOnlyAns',S.srOnlyAns);srRun()};
+  $$('.sr-sc').forEach(b=>{b.onclick=()=>{S.srScope=b.dataset.v;LC.set('srScope',S.srScope);S.srLim=40;R()}});
+  srLoad(srIds()).then(()=>{srRun();if(!S.srQ)inp.focus()});
+}
+function openSearch(){if(S.srScope===undefined)S.srScope=LC.get('srScope');if(S.srOnlyAns===undefined)S.srOnlyAns=!!LC.get('srOnlyAns');S.srLim=40;S.screen='search';R()}
 
 // ═══ START QUIZ ═══
 // 737 전체 풀기에서는 보관(hid) 문제를 뺀다. 번호(_oidx)는 원래 번호 그대로.
